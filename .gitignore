@@ -76,3 +76,7 @@ Thumbs.db
 # ABIDES run artifacts / local reference clone (not part of thesis history)
 abides/log/
 abides-jpmc-public/
+
+# Personal project notes (not shared via git)
+CLAUDE.md
+docs/
