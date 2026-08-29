@@ -43,7 +43,7 @@ class Agent:
         self.random_state: np.random.RandomState = (
             random_state
             or np.random.RandomState(
-                seed=np.random.randint(low=0, high=2 ** 32, dtype="uint64")
+                seed=np.random.randint(low=0, high=2 ** 31-1, dtype="uint64")
             )
         )
         self.log_events: bool = log_events

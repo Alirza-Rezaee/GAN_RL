@@ -59,7 +59,7 @@ class Kernel:
         self.random_state: np.random.RandomState = (
             random_state
             or np.random.RandomState(
-                seed=np.random.randint(low=0, high=2 ** 32, dtype="uint64")
+                seed=np.random.randint(low=0, high=2 ** 31-1, dtype="uint64")
             )
         )
 
@@ -635,14 +635,8 @@ class Kernel:
         if requested_time is None:
             requested_time = self.current_time + 1
 
-        if self.current_time and (requested_time < self.current_time):
-            raise ValueError(
-                "set_wakeup() called with requested time not in future",
-                "current_time:",
-                self.current_time,
-                "requested_time:",
-                requested_time,
-            )
+        if requested_time <= self.current_time:
+            requested_time = self.current_time + 1
 
         if self.show_trace_messages:
             logger.debug(

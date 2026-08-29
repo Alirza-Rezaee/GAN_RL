@@ -34,7 +34,7 @@ def build_config(
     log_orders=True,
     book_logging=True,
     book_log_depth=10,
-    #   seed=int(NanosecondTime.now().timestamp() * 1000000) % (2 ** 32 - 1),
+    #   seed=int(NanosecondTime.now().timestamp() * 1000000) % (2 ** 31-1 - 1),
     seed=1,
     stdout_log_level="INFO",
     ##
@@ -98,7 +98,7 @@ def build_config(
             "megashock_mean": fund_megashock_mean,
             "megashock_var": fund_megashock_var,
             "random_state": np.random.RandomState(
-                seed=np.random.randint(low=0, high=2**32, dtype="uint64")
+                seed=np.random.randint(low=0, high=2**31-1, dtype="uint64")
             ),
         }
     }
@@ -271,7 +271,7 @@ def build_config(
 
     # extract kernel seed here to reproduce the state of random generator in old version
     random_state_kernel = np.random.RandomState(
-        seed=np.random.randint(low=0, high=2**32, dtype="uint64")
+        seed=np.random.randint(low=0, high=2**31-1, dtype="uint64")
     )
     # LATENCY
 

@@ -16,7 +16,7 @@ def test_rmsc04():
         exchange_log_orders=False,
     )
 
-    kernel_seed = np.random.randint(low=0, high=2 ** 32, dtype="uint64")
+    kernel_seed = np.random.randint(low=0, high=2 ** 31-1, dtype="uint64")
 
     kernel = Kernel(
         log_dir="__test_logs",
