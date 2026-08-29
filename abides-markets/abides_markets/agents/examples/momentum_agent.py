@@ -140,8 +140,9 @@ class MomentumAgent(TradingAgent):
         if not self.poisson_arrival:
             return self.wake_up_freq
         else:
-            delta_time = self.random_state.exponential(scale=self.arrival_rate)
-            return int(round(delta_time))
+            scale = max(1e-9, float(self.arrival_rate)) if self.arrival_rate is not None else 1.0
+            delta_time = self.random_state.exponential(scale=scale)
+            return max(1, int(delta_time))
 
     @staticmethod
     def ma(a, n=20):

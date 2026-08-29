@@ -300,6 +300,11 @@ class ValueAgent(TradingAgent):
         # Cancel all open orders.
         # Return value: did we issue any cancellation requests?
 
-    def get_wake_frequency(self) -> NanosecondTime:
-        delta_time = self.random_state.exponential(scale=1.0 / self.lambda_a)
-        return int(round(delta_time))
+    def get_wake_frequency(self) -> int:
+        if hasattr(self, 'wake_up_freq'):
+            delta_time = self.random_state.exponential(scale=max(1e-9, float(self.wake_up_freq)))
+        elif hasattr(self, 'lambda_a'):
+            delta_time = self.random_state.exponential(scale=max(1e-9, 1.0 / float(self.lambda_a)))
+        else:
+            delta_time = 1e9  # پیش‌فرض: ۱ ثانیه (به نانوثانیه)
+        return max(1, int(delta_time))

@@ -492,9 +492,7 @@ class AdaptiveMarketMakerAgent(TradingAgent):
 
         self.place_multiple_orders(orders)
 
-    def get_wake_frequency(self) -> NanosecondTime:
-        if not self.poisson_arrival:
-            return self.wake_up_freq
-        else:
-            delta_time = self.random_state.exponential(scale=self.arrival_rate)
-            return int(round(delta_time))
+    def get_wake_frequency(self) -> int:
+        scale = max(1e-9, float(self.arrival_rate)) if getattr(self, "arrival_rate", None) is not None else 1e9
+        delta_time = self.random_state.exponential(scale=scale)
+        return max(1, int(delta_time))

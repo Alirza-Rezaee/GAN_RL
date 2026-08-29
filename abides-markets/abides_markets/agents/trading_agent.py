@@ -373,9 +373,14 @@ class TradingAgent(FinancialAgent):
             # Agents are asked to generate a wake offset from the market open time.  We structure
             # this as a subclass request so each agent can supply an appropriate offset relative
             # to its trading frequency.
-            ns_offset = self.get_wake_frequency()
+            try:
+                ns_offset = self.get_wake_frequency()
+                ns_offset = max(1, int(abs(ns_offset)))
+            except Exception:
+                ns_offset = 1_000_000_000  # ۱ ثانیه پیش‌فرض در صورت بروز خطا
 
-            self.set_wakeup(self.mkt_open + ns_offset)
+            wakeup_time = max(current_time + 1, self.mkt_open + ns_offset)
+            self.set_wakeup(wakeup_time)
 
     def get_last_trade(self, symbol: str) -> None:
         """
