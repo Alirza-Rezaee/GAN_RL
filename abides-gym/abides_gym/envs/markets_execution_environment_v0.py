@@ -142,17 +142,9 @@ class SubGymMarketsExecutionEnv_v0(AbidesGymMarketsEnv):
             "smc_01",
         ], "Select rmsc03 or rmsc04 as config"
 
-        assert (self.first_interval <= str_to_ns("16:00:00")) & (
-            self.first_interval >= str_to_ns("00:00:00")
-        ), "Select authorized FIRST_INTERVAL delay"
+        assert self.first_interval >= 0, "Select authorized FIRST_INTERVAL delay"
 
-        assert (self.mkt_close <= str_to_ns("16:00:00")) & (
-            self.mkt_close >= str_to_ns("09:30:00")
-        ), "Select authorized market hours"
-
-        assert (self.timestep_duration <= str_to_ns("06:30:00")) & (
-            self.timestep_duration >= str_to_ns("00:00:00")
-        ), "Select authorized timestep_duration"
+        assert self.timestep_duration > 0, "Select authorized timestep_duration"
 
         assert (type(self.starting_cash) == int) & (
             self.starting_cash >= 0
@@ -184,9 +176,7 @@ class SubGymMarketsExecutionEnv_v0(AbidesGymMarketsEnv):
             self.order_fixed_size >= 0
         ), "Select positive integer value for parent_order_size"
 
-        assert (self.execution_window <= str_to_ns("06:30:00")) & (
-            self.execution_window >= str_to_ns("00:00:00")
-        ), "Select authorized execution_window"
+        assert self.execution_window > 0, "Select authorized execution_window"
 
         assert (
             type(self.too_much_reward_update) == int

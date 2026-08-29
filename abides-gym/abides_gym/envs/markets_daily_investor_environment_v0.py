@@ -89,22 +89,14 @@ class SubGymMarketsDailyInvestorEnv_v0(AbidesGymMarketsEnv):
             "smc_01",
         ], "Select rmsc03, rmsc04 or smc_01 as config"
 
-        assert (self.first_interval <= str_to_ns("16:00:00")) & (
-            self.first_interval >= str_to_ns("00:00:00")
-        ), "Select authorized FIRST_INTERVAL delay"
-
-        assert (self.mkt_close <= str_to_ns("16:00:00")) & (
-            self.mkt_close >= str_to_ns("09:30:00")
-        ), "Select authorized market hours"
+        assert self.first_interval >= 0, "Select authorized FIRST_INTERVAL delay"
 
         assert reward_mode in [
             "sparse",
             "dense",
         ], "reward_mode needs to be dense or sparse"
 
-        assert (self.timestep_duration <= str_to_ns("06:30:00")) & (
-            self.timestep_duration >= str_to_ns("00:00:00")
-        ), "Select authorized timestep_duration"
+        assert self.timestep_duration > 0, "Select authorized timestep_duration"
 
         assert (type(self.starting_cash) == int) & (
             self.starting_cash >= 0
