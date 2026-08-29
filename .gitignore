@@ -1,21 +1,78 @@
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
-*.pyo
+*.py[codz]
+*$py.class
 
-# Virtual environments
-venv/
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py.cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Environments
 .env
+.envrc
+.venv
 .conda/
-
-# Conda environment
 *.conda
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
 
 # IDE
 .vscode/
-
-# Jupyter
-.ipynb_checkpoints/
+.idea/
 
 # OS
 .DS_Store
+Thumbs.db
+
+# ABIDES run artifacts / local reference clone (not part of thesis history)
+abides/log/
+abides-jpmc-public/
