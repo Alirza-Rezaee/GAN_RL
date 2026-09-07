@@ -1,0 +1,31 @@
+environment:
+  id: "markets-execution-v0"
+  background_config: "rmsc04"
+  mkt_close: "16:00:00"
+  timestep_duration: "60s"
+  starting_cash: 1000000
+  order_fixed_size: 100
+  parent_order_size: 1000
+  execution_window: "00:10:00"
+  direction: "SELL"
+  state_history_length: 4
+  market_data_buffer_length: 5
+  first_interval: "00:00:30"
+
+algorithm:
+  name: "ppo"
+  policy: "MlpPolicy"
+  learning_rate: 0.0001
+  n_steps: 2048
+  batch_size: 64
+  gamma: 0.99
+  ent_coef: 0.01
+
+training:
+  quick_test_timesteps: 50000
+  total_timesteps: 500000
+  seed: 42
+
+evaluation:
+  episodes: 100
+  seeds: [1000, 1001, 1002, 1003, 1004]
