@@ -80,3 +80,6 @@ abides-jpmc-public/
 # Personal project notes (not shared via git)
 CLAUDE.md
 docs/
+
+# Training outputs
+runs/

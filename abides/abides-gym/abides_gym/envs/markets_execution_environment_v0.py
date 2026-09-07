@@ -525,11 +525,11 @@ class SubGymMarketsExecutionEnv_v0(AbidesGymMarketsEnv):
 
         elif (self.direction == "SELL") and (holdings <= -parent_order_size):
             update_reward = (
-                abs(holdings - parent_order_size) * self.too_much_reward_update
+                abs(holdings + parent_order_size) * self.too_much_reward_update
             )  # executed sell too much
         elif (self.direction == "SELL") and (holdings > -parent_order_size):
             update_reward = (
-                abs(holdings - parent_order_size) * self.not_enough_reward_update
+                abs(holdings + parent_order_size) * self.not_enough_reward_update
             )  # executed sell not enough
         else:
             update_reward = self.just_quantity_reward_update
