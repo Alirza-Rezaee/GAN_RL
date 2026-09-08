@@ -1,19 +1,25 @@
+# Phase 1 baseline: PPO order execution, no adversarial component.
+#
+# This file is the single source of truth. Every script reads its environment
+# parameters from here through common/env_factory.py, so training and evaluation
+# can never run on different environments by accident.
+
 environment:
   id: "markets-execution-v0"
-  background_config: "rmsc04"
-  mkt_close: "16:00:00"
-  timestep_duration: "60s"
+  background_config: "rmsc04"   # ABIDES background agent population
+  mkt_close: "16:00:00"         # when the simulated market day ends
+  timestep_duration: "60s"      # how often the agent is asked for an action
   starting_cash: 1000000
-  order_fixed_size: 100
-  parent_order_size: 1000
-  execution_window: "00:10:00"
+  order_fixed_size: 100         # size of each child order
+  parent_order_size: 1000       # total shares the agent must execute
+  execution_window: "00:10:00"  # time allowed to finish -> 10 decision steps
   direction: "SELL"
   state_history_length: 4
   market_data_buffer_length: 5
-  first_interval: "00:00:30"
+  first_interval: "00:00:30"    # warm-up before the agent's first wake-up
 
 algorithm:
-  name: "ppo"
+  name: "ppo"                   # checked by train.py; only "ppo" is implemented
   policy: "MlpPolicy"
   learning_rate: 0.0001
   n_steps: 2048
@@ -22,10 +28,21 @@ algorithm:
   ent_coef: 0.01
 
 training:
-  quick_test_timesteps: 50000
-  total_timesteps: 500000
-  seed: 42
+  quick_test_timesteps: 50000   # short smoke test, used when --full is omitted
+  total_timesteps: 250000       # real budget, used with --full
+  seed: 42                      # default training seed; --seed overrides it
 
+  # Evaluation performed periodically DURING training, used to pick the best
+  # model. Its seed range is kept apart from evaluation.seed_start below so that
+  # model selection never touches the final test days.
+  eval_seed: 500
+  eval_freq: 5000               # evaluate every N training steps
+  n_eval_episodes: 20           # episodes per evaluation; more = less noise
+
+# Final evaluation, run AFTER training by evaluation/evaluate.py.
+# Seeds 100..199 are never seen during training, so they act as a held-out
+# validation set. Both TWAP and PPO use this same range, which is what makes the
+# paired statistical test in evaluation/compare.py valid.
 evaluation:
   episodes: 100
-  seeds: [1000, 1001, 1002, 1003, 1004]
+  seed_start: 100
