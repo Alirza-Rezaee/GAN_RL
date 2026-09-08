@@ -1,0 +1,20 @@
+# Phase 1 dependencies, pinned to the versions verified in the exec-rl conda env.
+#
+# Note on stable-baselines3: version 1.8.0 is the last release of the "old"
+# family that still works with classic gym. abides-gym is built on gym 0.21.0,
+# and SB3 >= 2.0 requires gymnasium with a different step() API, so upgrading
+# would break the environment.
+
+stable-baselines3==1.8.0
+tensorboard==2.21.0
+matplotlib==3.10.9
+pandas==1.5.3
+PyYAML==6.0.3
+
+# scipy is needed for the paired t-test in evaluation/compare.py.
+# Install it with conda, NOT pip:
+#     conda install -n exec-rl scipy=1.15.2
+# Installing scipy from pip on top of the conda copy leaves two overlapping
+# installations in site-packages and breaks scipy.stats with a
+# "wrong signature" TypeError. This already happened once in this env.
+# scipy==1.15.2  (managed by conda)
