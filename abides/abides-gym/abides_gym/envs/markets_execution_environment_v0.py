@@ -268,6 +268,20 @@ class SubGymMarketsExecutionEnv_v0(AbidesGymMarketsEnv):
         # initialize previous_marked_to_market to starting_cash (No holding at the beginning of the episode)
         self.previous_marked_to_market: int = self.starting_cash
 
+    def reset(self):
+        """
+        Start a new episode (a new simulated market day).
+
+        We must reset step_index to 0 here. raw_state_to_state() captures the
+        arrival price with `if self.step_index == 0: self.entry_price = mid_price`.
+        Since the base class never resets this counter, without this override the
+        arrival price would be captured only during the very first episode and
+        every later episode would compute its reward and its price_impact feature
+        against the price of a different simulated day.
+        """
+        self.step_index = 0
+        return super().reset()
+
     def _map_action_space_to_ABIDES_SIMULATOR_SPACE(
         self, action: int
     ) -> List[Dict[str, Any]]:
