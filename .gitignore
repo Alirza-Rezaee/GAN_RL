@@ -83,3 +83,8 @@ docs/
 
 # Training outputs
 runs/
+results/comparison_ppo_seed42.csv
+results/comparison_ppo_seed43.csv
+results/ppo_seed43.csv
+results/ppo_seed44.csv
+results/comparison.csv

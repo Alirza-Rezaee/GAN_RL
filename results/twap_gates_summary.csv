@@ -1,0 +1,4 @@
+gate,config,episodes,seed_start,seed_end,is_mean_bps,is_std_bps,completed_pct,mean_unexecuted_shares
+gate_a,F:\Master\Thesis\GAN_RL\configs\gate_a.yaml,200,100,299,0.308781279859335,3.168468247099904,91.5,7.9
+gate_b,F:\Master\Thesis\GAN_RL\configs\gate_b.yaml,200,100,299,0.1450363004873287,2.2637803960384515,99.5,0.99
+gate_c,F:\Master\Thesis\GAN_RL\configs\gate_c.yaml,200,100,299,0.18201449127929448,3.83593195234446,98.5,1.5
