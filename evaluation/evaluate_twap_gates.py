@@ -19,9 +19,8 @@ from common.metrics import implementation_shortfall_bps
 
 
 DEFAULT_CONFIGS = [
-    PROJECT_ROOT / "configs" / "gate_a.yaml",
     PROJECT_ROOT / "configs" / "gate_b.yaml",
-    PROJECT_ROOT / "configs" / "gate_c.yaml",
+    PROJECT_ROOT / "configs" / "gate_d.yaml",
 ]
 
 
@@ -49,6 +48,7 @@ def run_twap_episode(env, agent, parent_order_size, seed):
         "is_bps": shortfall_bps,
         "remaining_quantity": info["remaining_quantity"],
         "completed": info["remaining_quantity"] == 0,
+        "oversold": info["remaining_quantity"] < 0,
     }
 
 
@@ -71,7 +71,10 @@ def evaluate_gate(config_path, episodes, seed_start):
         env.close()
 
     frame = pd.DataFrame(episode_results)
-    return {
+    frame.insert(0, "seed", range(seed_start, seed_start + len(frame)))
+    frame.insert(0, "gate", Path(config_path).stem)
+    frame.insert(0, "config", str(Path(config_path)))
+    summary = {
         "gate": Path(config_path).stem,
         "config": str(Path(config_path)),
         "episodes": len(frame),
@@ -82,6 +85,7 @@ def evaluate_gate(config_path, episodes, seed_start):
         "completed_pct": frame["completed"].mean() * 100,
         "mean_unexecuted_shares": frame["remaining_quantity"].mean(),
     }
+    return summary, frame
 
 
 def main():
@@ -90,11 +94,11 @@ def main():
     )
     parser.add_argument(
         "--configs",
-        nargs=3,
+        nargs=2,
         type=Path,
         default=DEFAULT_CONFIGS,
-        metavar=("GATE_A", "GATE_B", "GATE_C"),
-        help="Three gate YAML files, evaluated in this order.",
+        metavar=("GATE_B", "GATE_D"),
+        help="Two gate YAML files, evaluated in this order.",
     )
     parser.add_argument(
         "--episodes",
@@ -111,33 +115,50 @@ def main():
     parser.add_argument(
         "--out",
         type=Path,
-        default=PROJECT_ROOT / "results" / "twap_gates_summary.csv",
+        default=PROJECT_ROOT / "results" / "twap_gate_b&d_summary.csv",
         help="Summary CSV path.",
     )
+    
+
+    parser.add_argument(
+        "--episodes-out",
+        type=Path,
+        default=PROJECT_ROOT / "results" / "twap_gate_b&d_episodes.csv",
+        help="Per-episode results CSV path.",
+    )
+
     args = parser.parse_args()
 
     if args.episodes <= 0:
         parser.error("--episodes must be greater than zero")
 
     summaries = []
+    episode_frames = []
     for config_path in args.configs:
         print(
             f"Evaluating {config_path.stem}: "
             f"{args.episodes} episodes, seeds "
-            f"{args.seed_start}..{args.seed_start + args.episodes - 1}"
+            f"{args.seed_start}..{args.seed_start + args.episodes - 1}",
+            flush=True,
         )
-        summary = evaluate_gate(config_path, args.episodes, args.seed_start)
+        summary, episode_frame = evaluate_gate(config_path, args.episodes, args.seed_start)
         summaries.append(summary)
+        episode_frames.append(episode_frame)
         print(
             f"  IS={summary['is_mean_bps']:.3f} +/- "
             f"{summary['is_std_bps']:.3f} bps, "
             f"completed={summary['completed_pct']:.2f}%, "
-            f"unexecuted={summary['mean_unexecuted_shares']:.2f}"
+            f"unexecuted={summary['mean_unexecuted_shares']:.2f}",
+            flush=True,
         )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.episodes_out.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(summaries).to_csv(args.out, index=False)
+    all_episodes_frame = pd.concat(episode_frames, ignore_index=True)
+    all_episodes_frame.to_csv(args.episodes_out, index=False)
     print(f"\nSaved gate comparison to: {args.out}")
+    print(f"Saved per-episode results to: {args.episodes_out}")
 
 
 if __name__ == "__main__":
