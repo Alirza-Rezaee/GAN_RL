@@ -1,0 +1,66 @@
+# Single source of truth for which seed belongs to which purpose.
+#
+# Why this file exists
+# --------------------
+# A seed is a market day. Once a day has been used to develop, tune or decide
+# anything, a result measured on that day is partly a memory of it rather than a
+# prediction. Seeds 100-299 have already decided Stage 0, so they can never again
+# serve as a held-out test set. Writing that down permanently is the only way the
+# mistake cannot be made by accident in six months.
+#
+# Project rule 10: these ranges must never be mixed.
+
+bands:
+
+  training:
+    seeds: [42, 43, 44]
+    purpose: >
+      PPO training seeds (training.seed). 42 is the default; 43 and 44 are used
+      when several training seeds are needed.
+    status: development
+    note: >
+      NOT in the Stage-0 request for this file. Added for completeness because
+      configs/*.yaml already set training.seed: 42, and a registry that omits a
+      band in active use is worse than no registry.
+
+  model_selection:
+    seeds: [500]
+    purpose: >
+      Seeds the evaluation environment used DURING training to select the best
+      model (training.eval_seed).
+    status: development
+    note: >
+      500 is a generator seed, not one market day. ReseedingEvalCallback calls
+      eval_env.seed(500) before each evaluation, and the callback then runs
+      training.n_eval_episodes episodes, so one seeding yields that many
+      consecutive days. Kept apart from every other band so model selection can
+      never touch a test day.
+
+  development_gates:
+    range: [100, 299]
+    purpose: "Stage-0 TWAP and manual-rule gate evaluations."
+    status: burned
+    note: >
+      BURNED: already used to reach a decision (Stage-0 path (b)). Free to reuse
+      for further development, but must never again be reported as held-out.
+
+  development_new:
+    range: [1000, 1999]
+    purpose: >
+      Development range for everything after Stage 0: oversell-fix verification,
+      the impact probe, and new gate design.
+    status: development
+
+  final_test:
+    range: [9000, 9999]
+    purpose: "FINAL TEST SET for the thesis. Reserved."
+    status: reserved
+    note: >
+      Must not be touched by any script until the final evaluation. Scripts
+      refuse these seeds unless --final-test is passed explicitly.
+      Enforced by common/seeds.py.
+
+# Enforced by common/seeds.py. Keep in sync with the bands above.
+enforcement:
+  reserved_band: final_test
+  override_flag: "--final-test"

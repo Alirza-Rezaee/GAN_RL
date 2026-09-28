@@ -25,6 +25,7 @@ from stable_baselines3 import PPO
 from baselines.twap_agent import TWAPAgent
 from common.env_factory import PROJECT_ROOT, load_config, make_env
 from common.metrics import implementation_shortfall_bps
+from common.seeds import assert_seeds_allowed
 
 
 def run_episode(env, agent_step, parent_order_size, seed):
@@ -149,6 +150,12 @@ def main():
         default=None,
         help="Output CSV path. Defaults to results/<agent>.csv.",
     )
+    parser.add_argument(
+        "--final-test",
+        action="store_true",
+        help="Allow the reserved final-test seeds from "
+             "configs/seed_registry.yaml. Only for the thesis final evaluation.",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -159,6 +166,12 @@ def main():
     num_episodes = evaluation_config["episodes"]
     seed_start = evaluation_config["seed_start"]
     parent_order_size = config["environment"]["parent_order_size"]
+
+    assert_seeds_allowed(
+        range(seed_start, seed_start + num_episodes),
+        args.final_test,
+        context=f"evaluate --agent {args.agent}",
+    )
 
     output_path = (
         Path(args.out)

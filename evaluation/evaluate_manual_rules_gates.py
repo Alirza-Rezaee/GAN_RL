@@ -75,6 +75,7 @@ from abides_core.utils import str_to_ns
 
 from common.env_factory import PROJECT_ROOT, load_config, make_env
 from common.metrics import implementation_shortfall_bps
+from common.seeds import assert_seeds_allowed, seed_band_name
 from evaluation.manual_rules import (
     ACTION_HOLD,
     ACTION_LIMIT,
@@ -441,8 +442,9 @@ def write_config_used(path, args, gate_configs, thresholds):
             "start": args.seed_start,
             "end": args.seed_end,
             "episodes_per_rule_per_gate": args.seed_end - args.seed_start + 1,
-            "note": "final-evaluation range; never mixed with train.seed or eval_seed",
+            "band": seed_band_name(args.seed_start, args.seed_end),
         },
+        "final_test": args.final_test,
         "rules": list(args.rules),
         "twap_baseline_csv": str(args.twap_episodes_csv),
         "gate_thresholds_file": str(args.gate_thresholds),
@@ -534,10 +536,22 @@ def main():
         help="Per-episode CSV path, so any test can be recomputed without "
              "re-running the simulation.",
     )
+    parser.add_argument(
+        "--final-test",
+        action="store_true",
+        help="Allow the reserved final-test seeds from "
+             "configs/seed_registry.yaml. Only for the thesis final evaluation.",
+    )
     args = parser.parse_args()
 
     if args.seed_end < args.seed_start:
         parser.error("--seed-end must not be smaller than --seed-start")
+
+    assert_seeds_allowed(
+        range(args.seed_start, args.seed_end + 1),
+        args.final_test,
+        context="evaluate_manual_rules_gates",
+    )
 
     with args.gate_thresholds.open("r", encoding="utf-8") as handle:
         thresholds = yaml.safe_load(handle)

@@ -16,6 +16,7 @@ import pandas as pd
 from baselines.twap_agent import TWAPAgent
 from common.env_factory import PROJECT_ROOT, load_config, make_env
 from common.metrics import implementation_shortfall_bps
+from common.seeds import assert_seeds_allowed
 
 
 DEFAULT_CONFIGS = [
@@ -126,11 +127,23 @@ def main():
         default=PROJECT_ROOT / "results" / "twap_gate_b&d_episodes.csv",
         help="Per-episode results CSV path.",
     )
+    parser.add_argument(
+        "--final-test",
+        action="store_true",
+        help="Allow the reserved final-test seeds from "
+             "configs/seed_registry.yaml. Only for the thesis final evaluation.",
+    )
 
     args = parser.parse_args()
 
     if args.episodes <= 0:
         parser.error("--episodes must be greater than zero")
+
+    assert_seeds_allowed(
+        range(args.seed_start, args.seed_start + args.episodes),
+        args.final_test,
+        context="evaluate_twap_gates",
+    )
 
     summaries = []
     episode_frames = []

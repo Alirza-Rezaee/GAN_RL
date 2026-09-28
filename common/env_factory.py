@@ -25,6 +25,8 @@ import yaml
 # registers the "markets-execution-v0" id inside gym.
 import abides_gym  # noqa: F401
 
+from common.seeds import assert_seeds_allowed
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "configs" / "phase1_baseline.yaml"
@@ -54,7 +56,7 @@ def load_config(config_path=None):
         return yaml.safe_load(config_file)
 
 
-def make_env(config, seed=None):
+def make_env(config, seed=None, allow_final_test=False):
     """
     Build one ABIDES execution environment from a loaded config dict.
 
@@ -63,6 +65,9 @@ def make_env(config, seed=None):
         seed:   if given, seeds the environment's random generator. The seed
                 controls which simulated market day reset() produces, so the
                 same seed always replays the same day.
+        allow_final_test: permit a seed from the reserved final-test band. Must
+                never be set by training code - selecting a model on test days
+                would leak the test set into model selection.
 
     Returns:
         a gym environment, ready for reset().
@@ -84,6 +89,14 @@ def make_env(config, seed=None):
     env = gym.make(environment_config["id"], **env_kwargs)
 
     if seed is not None:
+        # Guards only the seeds that reach the simulator through make_env, which
+        # in practice means execution_agent/train.py. The evaluation scripts seed
+        # per episode and call assert_seeds_allowed() in their own main().
+        assert_seeds_allowed(
+            [seed],
+            allow_final_test,
+            context="make_env(seed=...)",
+        )
         env.seed(seed)
 
     return env
