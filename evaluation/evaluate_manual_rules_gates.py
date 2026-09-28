@@ -210,6 +210,10 @@ def run_rule_episode(env, rule, parent_order_size, order_fixed_size, total_steps
         "completed": remaining_shares == 0,
         "oversold": remaining_shares < 0,
         "steps_used": step,
+        # Present only on the variable_last_child variant (common/execution_env.py);
+        # None on the stock environment. Needed to explain any residual oversell.
+        "clamped_orders": getattr(env.unwrapped, "clamped_order_count", None),
+        "suppressed_orders": getattr(env.unwrapped, "suppressed_order_count", None),
     }
     episode.update({f"n_{label}": count for label, count in action_counts.items()})
     return episode
@@ -374,6 +378,14 @@ def summarise(rule_episodes, twap_episodes, thresholds):
             "n_mkt": int(group["n_mkt"].sum()),
             "n_lmt": int(group["n_lmt"].sum()),
             "n_hold": int(group["n_hold"].sum()),
+            "clamped_orders": (
+                int(group["clamped_orders"].sum())
+                if group["clamped_orders"].notna().all() else None
+            ),
+            "suppressed_orders": (
+                int(group["suppressed_orders"].sum())
+                if group["suppressed_orders"].notna().all() else None
+            ),
         }
         row.update(paired_test_vs_twap(group))
         rows.append(row)
@@ -420,7 +432,11 @@ def git_information():
             capture_output=True,
             text=True,
         )
-        return completed.stdout.strip() if completed.returncode == 0 else None
+        # rstrip("\n"), not strip(): git status --porcelain encodes state in two
+        # leading characters per line, so " M file" (modified, not staged) and
+        # "M  file" (staged) are different states. strip() would eat the leading
+        # space of the FIRST line only, silently corrupting that one entry.
+        return completed.stdout.rstrip("\n") if completed.returncode == 0 else None
 
     return git("rev-parse", "HEAD"), git("status", "--porcelain")
 
