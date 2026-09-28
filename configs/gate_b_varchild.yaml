@@ -1,0 +1,48 @@
+# gate_b with the variable-last-child environment variant.
+#
+# Identical to configs/gate_b.yaml in EVERY value. The only difference is the new
+# `env_variant` key, which selects common/execution_env.py instead of the stock
+# markets-execution-v0. gate_b.yaml itself is left untouched so that the committed
+# Stage-0 results stay reproducible.
+#
+# Purpose: the Stage-2 regression test. TWAP can never trigger the clamp (it stops
+# sending once quantity_sent >= parent_order_size, so it always has at least
+# order_fixed_size outstanding before each order), therefore TWAP on this config
+# must reproduce results/twap_gate_bvd_episodes.csv exactly on all 200 seeds.
+# See configs/oversell_fix_criteria.yaml.
+
+environment:
+  id: "markets-execution-v0"
+  env_variant: "variable_last_child"   # <-- the only change vs gate_b.yaml
+  background_config: "rmsc04"   # ABIDES background agent population
+  mkt_close: "16:00:00"         # when the simulated market day ends
+  timestep_duration: "60s"      # how often the agent is asked for an action
+  starting_cash: 1000000
+  order_fixed_size: 100         # size of each child order
+  parent_order_size: 1000       # total shares the agent must execute
+  execution_window: "00:10:00"  # time allowed to finish -> 10 decision steps
+  direction: "SELL"
+  state_history_length: 4
+  market_data_buffer_length: 5
+  first_interval: "00:30:00"    # warm-up before the agent's first wake-up
+
+algorithm:
+  name: "ppo"
+  policy: "MlpPolicy"
+  learning_rate: 0.0001
+  n_steps: 2048
+  batch_size: 64
+  gamma: 0.99
+  ent_coef: 0.01
+
+training:
+  quick_test_timesteps: 50000
+  total_timesteps: 250000
+  seed: 42
+  eval_seed: 500
+  eval_freq: 5000
+  n_eval_episodes: 20
+
+evaluation:
+  episodes: 100
+  seed_start: 100

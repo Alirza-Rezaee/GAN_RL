@@ -1,0 +1,138 @@
+# Pass criteria for the Stage-2 oversell fix.
+#
+# ======================================================================
+# WRITTEN BEFORE EITHER RUN WAS STARTED. DO NOT CHANGE AFTERWARDS.
+# ======================================================================
+# Locked in on 2026-09-28, before Run A or Run B existed. The only numbers that
+# existed at that moment came from the committed STOCK-environment results:
+#   results/twap_gate_bvd_episodes.csv         (TWAP, seeds 100-299)
+#   results/manual_rules_gate_episodes.csv     (manual rules, seeds 100-299)
+#
+# The `screening:` block at the bottom is the part evaluate_manual_rules_gates.py
+# actually reads. Everything above it is the pre-registration record.
+
+# ----------------------------------------------------------------------
+# RUN A - regression: the fix must change nothing it should not change
+# ----------------------------------------------------------------------
+run_a:
+  what: "TWAP on gate_b_varchild and gate_d_varchild, seeds 100-299."
+  compare_against: "results/twap_gate_bvd_episodes.csv (stock env, same seeds)"
+
+  criterion: >
+    is_bps must match the stock-environment value within 1e-9 bps on ALL 200 seeds
+    of gate_b, with ZERO exceptions. Same for gate_d. remaining_quantity,
+    completed and oversold must match exactly.
+
+  why_zero_exceptions_and_not_some: >
+    This is provable in advance, not a hope. TWAP stops sending once
+    quantity_sent >= parent_order_size (baselines/twap_agent.py:95-96), so it sends
+    at most parent_order_size / order_fixed_size child orders. Before its i-th
+    order it has executed at most order_fixed_size * (i - 1), so the quantity still
+    outstanding is at least
+        parent_order_size - order_fixed_size * (i - 1)
+      = order_fixed_size * (orders_needed - i + 1)
+      >= order_fixed_size    for every i <= orders_needed.
+    Therefore min(order_fixed_size, remaining) == order_fixed_size on every order
+    TWAP ever sends, and the clamp can never bind. Measured confirmation from the
+    stock run: the minimum quantity outstanding before TWAP's final order is
+    exactly 100 == order_fixed_size on both gates.
+    This holds even on seed 257, the ONLY seed where the stock TWAP run had a
+    partial fill (gate_b left 198 shares, gate_d left 100). Because 198 and 100 are
+    both >= order_fixed_size, the clamp still does not bind there.
+
+  expected_differing_seeds: []        # deliberately empty: none are expected
+  verdict:
+    pass: "zero seeds differ on either gate"
+    fail: >
+      any seed differs. That would mean the variant altered the message stream
+      somewhere it must not have - a bug in common/execution_env.py, not a market
+      effect. Each differing seed must be explained individually before Stage 3.
+
+# ----------------------------------------------------------------------
+# RUN B - effect: the fix must remove the systematic oversell
+# ----------------------------------------------------------------------
+run_b:
+  what: "patient_then_panic on gate_d_varchild, seeds 1000-1199 (200 episodes)."
+
+  stock_env_baseline:
+    note: >
+      Measured on seeds 100-299, NOT the same market days as Run B. So this is a
+      comparison of rates across different days, not a paired test. The effect
+      being looked for is large enough (25.5% -> near 0%) that day-to-day variation
+      cannot plausibly explain it, but no paired p-value is claimed. See
+      run_c_optional for the sharper test.
+    oversell_episodes: 51
+    episodes: 200
+    oversell_rate_pct: 25.5
+    total_oversold_shares: 2696
+    worst_single_episode_shares: 93
+    median_oversell_shares: 56
+    all_oversells_below_order_fixed_size: true
+
+  criterion:
+    target: "oversell_episodes == 0"
+    pass_if: "oversell_episodes <= 4 (2% of 200) AND every residual episode explained"
+    fail_if: "oversell_episodes > 4"
+    also_required:
+      - "total_oversold_shares must fall by at least 90% vs 2696, i.e. <= 269"
+      - "completed_pct must not fall below the stock-env value of 74.5%"
+
+  residual_must_satisfy: >
+    Any remaining oversell episode must be consistent with the cancel race
+    identified in Stage 1: the episode used at least one LMT action, the overshoot
+    is at most order_fixed_size, and clamped_orders or suppressed_orders is
+    non-zero. An oversell episode with zero LMT actions, or an overshoot larger
+    than order_fixed_size, is NOT the race and indicates a bug.
+
+  why_a_residual_is_tolerated: >
+    Messages carry latency. kernel.py:562-575 delivers every order and cancel at
+    current_time + computation_delay + latency, and rmsc04 spreads agents along a
+    3,866,660 m line (abides_markets/utils/__init__.py:168-174), i.e. up to ~12.9 ms
+    one way. A resting limit order can therefore fill after we computed the
+    remaining quantity but before our CCL_ALL reaches the exchange. The clamp
+    cannot close that window; it can only stop the systematic overshoot.
+
+# ----------------------------------------------------------------------
+# RUN C - OPTIONAL, not requested. The paired version of Run B.
+# ----------------------------------------------------------------------
+run_c_optional:
+  what: "patient_then_panic on gate_d_varchild, seeds 100-299."
+  why: >
+    Same rule, same 200 market days as the stock-env measurement, with ONLY the env
+    variant changed. That isolates the fix's effect instead of comparing two
+    different sets of days, and allows a paired Wilcoxon on is_bps against the
+    stock run. Needs its own criteria file because
+    evaluate_manual_rules_gates.py refuses a seed range that does not match the
+    pre-registered one.
+  status: "not run unless explicitly approved"
+
+# ======================================================================
+# Read by evaluate_manual_rules_gates.py for RUN B.
+# Schema must match configs/gate.yaml.
+# ======================================================================
+screening:
+
+  seeds:
+    start: 1000
+    end: 1199
+
+  baseline: twap
+
+  test:
+    name: wilcoxon_signed_rank
+    alternative: two-sided
+    alpha: 0.05
+    multiple_comparison: holm
+    decide_on: holm_p
+    note: >
+      For Run B there is no TWAP baseline on seeds 1000-1199, so the paired columns
+      will be empty (paired_n = 0) and the verdict will read "not_testable". That is
+      expected and not a failure: Run B's deliverable is the oversell count, not a
+      p-value. The block is present only because the script's schema requires it.
+
+  effect:
+    min_median_improvement_bps: 0.10
+
+  validity:
+    min_completion_pct: 74.5      # the stock-env value; must not get worse
+    max_oversell_episodes: 4      # 2% of 200, per run_b.criterion above
