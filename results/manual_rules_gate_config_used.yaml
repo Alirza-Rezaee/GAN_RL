@@ -1,0 +1,99 @@
+run:
+  script: evaluation/evaluate_manual_rules_gates.py
+  date: '2026-09-28'
+  git_commit: cf4cdb5d6c2cede3628e6e69e804790aef7b2cf5
+  git_working_tree_clean: false
+  git_uncommitted_paths:
+  - M evaluation/evaluate_manual_rules_gates.py
+  - ' M evaluation/manual_rules.py'
+  - ?? configs/gate.yaml
+  - ?? results/manual_rules_gate_episodes.csv
+  - ?? results/manual_rules_gate_results.csv
+  - ?? results/manual_rules_gate_run.log
+  - ?? results/twap_gate_b&d_summary.csv
+  - ?? results/twap_gate_b&d_wilcoxon_pairs.csv
+  - ?? results/twap_gate_bvd_episodes.csv
+  python: 3.10.20
+  platform: Windows-10-10.0.26200-SP0
+seeds:
+  start: 100
+  end: 299
+  episodes_per_rule_per_gate: 200
+  note: final-evaluation range; never mixed with train.seed or eval_seed
+rules:
+- front_loaded
+- back_loaded
+- spread_aware
+- patient_then_panic
+twap_baseline_csv: results\twap_gate_bvd_episodes.csv
+gate_thresholds_file: F:\Master\Thesis\GAN_RL\configs\gate.yaml
+gate_thresholds:
+  screening:
+    seeds:
+      start: 100
+      end: 299
+    baseline: twap
+    test:
+      name: wilcoxon_signed_rank
+      alternative: two-sided
+      alpha: 0.05
+      multiple_comparison: holm
+      decide_on: holm_p
+    effect:
+      min_median_improvement_bps: 0.1
+    validity:
+      min_completion_pct: 99.0
+      max_oversell_episodes: 0
+  decision:
+    path_a: 'At least one rule passes on gate_d (holm_p < alpha AND median improvement
+      >= 0.10 bps AND validity filters ok) AND no rule passes on gate_b. Meaning:
+      the environment has real headroom exactly where slack was added. Action: proceed
+      to Stage 1.
+
+      '
+    path_b: 'No rule passes on gate_d. Meaning: the environment is flat - four different
+      schedules all tie with TWAP, so there is nothing for an RL agent to discover
+      either. Action: do NOT train PPO. Make the environment harder first.
+
+      '
+    path_c: 'Any rule passes on gate_b. Meaning: suspicious. gate_b has zero slack
+      (parent_order_size == 1000 == order_fixed_size * total_steps), so the capacity-aware
+      safety net in ManualRule.predict() should force a market order on every single
+      step and make every rule bit-identical to TWAP. A win there means the rule code
+      or the safety net is wrong, not that the rule is clever. Action: re-review the
+      rule code and the safety net before trusting anything.
+
+      '
+configs:
+  gate_b:
+    path: configs\gate_b.yaml
+    decision_steps_per_episode: 10
+    environment:
+      id: markets-execution-v0
+      background_config: rmsc04
+      mkt_close: '16:00:00'
+      timestep_duration: 60s
+      starting_cash: 1000000
+      order_fixed_size: 100
+      parent_order_size: 1000
+      execution_window: 00:10:00
+      direction: SELL
+      state_history_length: 4
+      market_data_buffer_length: 5
+      first_interval: 00:30:00
+  gate_d:
+    path: configs\gate_d.yaml
+    decision_steps_per_episode: 10
+    environment:
+      id: markets-execution-v0
+      background_config: rmsc04
+      mkt_close: '16:00:00'
+      timestep_duration: 60s
+      starting_cash: 1000000
+      order_fixed_size: 100
+      parent_order_size: 500
+      execution_window: 00:10:00
+      direction: SELL
+      state_history_length: 4
+      market_data_buffer_length: 5
+      first_interval: 00:30:00

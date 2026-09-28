@@ -1,0 +1,28 @@
+4 rules x 2 gates x 200 episodes = 1600 simulated market days.
+
+gate_b: parent=1000, fixed=100, steps=10, slack=0 step(s)
+  front_loaded ... IS mean=0.145 median=0.179 bps, completed=99.50%, oversell=0
+  back_loaded ... IS mean=0.145 median=0.179 bps, completed=99.50%, oversell=0
+  spread_aware ... IS mean=0.145 median=0.179 bps, completed=99.50%, oversell=0
+  patient_then_panic ... IS mean=0.145 median=0.179 bps, completed=99.50%, oversell=0
+
+gate_d: parent=500, fixed=100, steps=10, slack=5 step(s)
+  front_loaded ... IS mean=0.112 median=0.089 bps, completed=99.50%, oversell=1
+  back_loaded ... IS mean=0.074 median=0.219 bps, completed=99.00%, oversell=0
+  spread_aware ... IS mean=0.189 median=0.089 bps, completed=99.00%, oversell=1
+  patient_then_panic ... IS mean=0.464 median=0.000 bps, completed=74.50%, oversell=51
+
+gate     rule                   IS mean   IS med  impr med  compl%  unexec  over      raw p     holm p  verdict
+---------------------------------------------------------------------------------------------------------------
+gate_b   front_loaded             0.145    0.179    -0.000   99.50    0.99     0        n/a        n/a  identical_to_twap
+gate_b   back_loaded              0.145    0.179    -0.000   99.50    0.99     0        n/a        n/a  identical_to_twap
+gate_b   spread_aware             0.145    0.179    -0.000   99.50    0.99     0        n/a        n/a  identical_to_twap
+gate_b   patient_then_panic       0.145    0.179    -0.000   99.50    0.99     0        n/a        n/a  identical_to_twap
+gate_d   front_loaded             0.112    0.089    -0.077   99.50    0.00     1     0.7483     0.9552  fail_oversell
+gate_d   back_loaded              0.074    0.219     0.002   99.00    1.50     0     0.4776     0.9552  not_significant
+gate_d   spread_aware             0.189    0.089    -0.066   99.00    0.50     1     0.1230     0.3690  fail_oversell
+gate_d   patient_then_panic       0.464    0.000    -0.311   74.50    0.00    51     0.0000     0.0000  fail_oversell
+
+Saved summary to:      F:\Master\Thesis\GAN_RL\results\manual_rules_gate_results.csv
+Saved per-episode to:  F:\Master\Thesis\GAN_RL\results\manual_rules_gate_episodes.csv
+Saved provenance to:   F:\Master\Thesis\GAN_RL\results\manual_rules_gate_config_used.yaml
