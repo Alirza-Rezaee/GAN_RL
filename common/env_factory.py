@@ -27,6 +27,9 @@ import abides_gym  # noqa: F401
 
 from common.seeds import assert_seeds_allowed
 
+# Imported for its side effect as well: importing it registers the variant gym id.
+from common.execution_env import VARIANT_ENV_ID
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "configs" / "phase1_baseline.yaml"
@@ -47,6 +50,16 @@ ENV_PARAM_KEYS = [
     "market_data_buffer_length",
     "first_interval",
 ]
+
+# Optional `env_variant` key under `environment:`. A config that does not set it
+# resolves to "stock", which uses environment_config["id"] unchanged - so every
+# config written before this key existed keeps its behaviour byte-for-byte.
+# `env_variant` is deliberately absent from ENV_PARAM_KEYS, so it is never
+# forwarded to the environment constructor.
+ENV_VARIANTS = {
+    "stock": None,
+    "variable_last_child": VARIANT_ENV_ID,
+}
 
 
 def load_config(config_path=None):
@@ -86,7 +99,24 @@ def make_env(config, seed=None, allow_final_test=False):
 
     env_kwargs = {key: environment_config[key] for key in ENV_PARAM_KEYS}
 
-    env = gym.make(environment_config["id"], **env_kwargs)
+    variant = environment_config.get("env_variant", "stock")
+    if variant not in ENV_VARIANTS:
+        raise ValueError(
+            f"Unknown env_variant '{variant}'. Choices: {sorted(ENV_VARIANTS)}"
+        )
+
+    variant_env_id = ENV_VARIANTS[variant]
+    if variant_env_id is None:
+        env_id = environment_config["id"]
+    else:
+        if environment_config["id"] != "markets-execution-v0":
+            raise ValueError(
+                f"env_variant '{variant}' is a subclass of markets-execution-v0, but "
+                f"the config asks for id '{environment_config['id']}'."
+            )
+        env_id = variant_env_id
+
+    env = gym.make(env_id, **env_kwargs)
 
     if seed is not None:
         # Guards only the seeds that reach the simulator through make_env, which
