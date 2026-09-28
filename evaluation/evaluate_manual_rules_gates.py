@@ -1,75 +1,167 @@
+"""Run the hand-written execution rules on the gate configs and test them
+against TWAP on the same market days.
+
+Purpose: "headroom screening"
+-----------------------------
+Before spending days training PPO, answer a much cheaper question: does this
+environment reward ANY non-TWAP schedule at all? Four different hand-made
+schedules are run against TWAP. If all four tie with TWAP, the environment is
+flat and an RL agent would have nothing to discover either. No RL is involved
+here, and nothing in this file learns anything.
+
+gate_b has zero slack (parent_order_size == order_fixed_size * total_steps), so
+the safety net in ManualRule.predict() forces a market order on every step and
+every rule must come out bit-identical to TWAP. gate_d halves the parent order,
+which creates five steps of slack, so there the rules can actually express an
+opinion. gate_b is the control; gate_d is the test.
+
+Everything the environment exposes was read from the real source, not guessed
+--------------------------------------------------------------------------
+Action mapping - abides/abides-gym/abides_gym/envs/markets_execution_environment_v0.py,
+    _map_action_space_to_ABIDES_SIMULATOR_SPACE(): 0 -> MKT, 1 -> LMT priced at
+    near_touch, 2 -> DO NOTHING. See evaluation/manual_rules.py for the verbatim
+    quote.
+
+Spread - row 6 of the (11, 1) observation. raw_state_to_state() builds
+    [holdings_pct, time_pct, diff_pct, imbalance_all, imbalance_5, price_impact,
+    spread, direction_feature] + 3 padded returns, and num_state_features is
+    8 + state_history_length - 1 = 11. Checked numerically as well:
+    observation[6, 0] equals info["spread"] on every step.
+
+Info keys - raw_state_to_info() returns asdict(self.custom_metrics_tracker)
+    whenever debug_mode is False, which is the default and which none of our
+    configs override. So info["remaining_quantity"], info["executed_quantity"]
+    and info["slippage_reward"] all exist. Their docstrings say "at the end of
+    the episode", but core_environment.step() calls raw_state_to_done() (which
+    writes them) BEFORE raw_state_to_info(), so they are refreshed every step.
+
+Implementation shortfall - NOT in info. It is computed here through
+    common.metrics.implementation_shortfall_bps(), the same function
+    evaluate_twap_gates.py uses, because otherwise the two CSVs would not be
+    comparable.
+
+Why the episode loop is copied from the TWAP evaluator
+-----------------------------------------------------
+run_rule_episode() below deliberately mirrors evaluate_twap_gates.run_twap_episode():
+one environment per (rule, gate), then env.seed(seed) + env.reset() per episode.
+core_environment.reset() draws the ABIDES seed from self.np_random, so seeding
+the env immediately before reset makes seed N replay the identical simulated
+market day for every policy. That identity is the whole basis of the paired
+test. It is also verified: on gate_b seed 100 all four rules return
+is_bps = 1.8485268301465916, and the TWAP baseline file records 1.848527 for
+gate_b seed 100.
+
+Example
+-------
+    python -m evaluation.evaluate_manual_rules_gates \
+        --configs configs/gate_b.yaml configs/gate_d.yaml \
+        --seed-start 100 --seed-end 299 \
+        --twap-episodes-csv results/twap_gate_bvd_episodes.csv
 """
-evaluate_manual_rules_gates.py
-
-Runs each manual rule (from manual_rules.py) against one or more gate
-configs, using the SAME seed range as your TWAP evaluation, and writes a
-CSV with the same shape of columns as your TWAP results, plus a paired
-Wilcoxon test against TWAP for each (rule, gate) combination.
-
-========================================================================
-READ THIS BEFORE RUNNING
-========================================================================
-I do not have access to your actual project files — common/env_factory.py,
-evaluation/evaluate_twap_gates.py, or the real shape of the observation
-and info dict your environment returns. Everything below was written to
-match the DESCRIPTION of your setup from this conversation, not your real
-source code.
-
-Every spot that needs your real code is marked:
-
-    # >>> ADAPT
-
-Hand this file to Claude Code together with evaluate_twap_gates.py and
-common/env_factory.py, and ask it — in these words or similar — to fill
-in every "# >>> ADAPT" spot so it matches your actual project exactly,
-and to show you a diff before saving. Do not run this file until that's
-done; several of the placeholders below (env=None, made-up dict keys)
-will simply crash or silently produce wrong numbers otherwise.
-========================================================================
-"""
-
-from __future__ import annotations
 
 import argparse
-import csv
+import platform
+import subprocess
+import sys
+from datetime import date
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import pandas as pd
 import yaml
 from scipy.stats import wilcoxon
 
-from evaluation.manual_rules import ALL_RULES, ManualRule, RuleState, make_rule
-from common.env_factory import make_env
+from abides_core.utils import str_to_ns
+
+from common.env_factory import PROJECT_ROOT, load_config, make_env
 from common.metrics import implementation_shortfall_bps
+from evaluation.manual_rules import (
+    ACTION_HOLD,
+    ACTION_LIMIT,
+    ACTION_MARKET,
+    ALL_RULES,
+    RuleState,
+    make_rule,
+)
 
 
-def run_episode(env, rule: ManualRule, order_fixed_size: int,
-                 total_steps: int, parent_order_size: int) -> Dict:
+# Row of the observation holding best_ask - best_bid. See the module docstring.
+SPREAD_ROW = 6
+
+ACTION_LABELS = {ACTION_MARKET: "mkt", ACTION_LIMIT: "lmt", ACTION_HOLD: "hold"}
+
+DEFAULT_TWAP_EPISODES_CSV = PROJECT_ROOT / "results" / "twap_gate_bvd_episodes.csv"
+DEFAULT_GATE_THRESHOLDS = PROJECT_ROOT / "configs" / "gate.yaml"
+
+# Paired differences smaller than this are treated as the exact zero they really
+# are. See paired_test_vs_twap() for why this is not cosmetic.
+IDENTICAL_TOLERANCE_BPS = 1e-9
+
+
+def total_decision_steps(config):
+    """How many times the agent is asked for an action inside one episode.
+
+    Identical formula to baselines/twap_agent.py: the agent is woken once every
+    timestep_duration and must finish the parent order within execution_window.
+    Derived from the clock, NOT from parent_order_size / order_fixed_size -
+    those two are independent, and that independence is exactly what lets gate_d
+    create slack.
     """
-    Runs one episode with `rule` making every decision. Returns a dict of
-    per-episode metrics, matching (as closely as possible) the columns
-    your TWAP evaluator already produces, so the two CSVs line up.
+    environment_config = config["environment"]
+    execution_window_ns = str_to_ns(environment_config["execution_window"])
+    timestep_ns = str_to_ns(environment_config["timestep_duration"])
+    return int(execution_window_ns / timestep_ns)
+
+
+def check_gate_config(config, gate_name):
+    """Refuse to run on a config that cannot produce a meaningful number.
+
+    parent_order_size must be an exact multiple of order_fixed_size. Otherwise
+    the final child order overshoots, the episode collects the
+    too_much_reward_update penalty, and that penalty has nothing to do with the
+    policy under test.
     """
+    environment_config = config["environment"]
+    parent_order_size = environment_config["parent_order_size"]
+    order_fixed_size = environment_config["order_fixed_size"]
+    steps = total_decision_steps(config)
+
+    if parent_order_size % order_fixed_size != 0:
+        raise ValueError(
+            f"{gate_name}: parent_order_size={parent_order_size} is not an exact "
+            f"multiple of order_fixed_size={order_fixed_size}. The last child "
+            f"order would oversell."
+        )
+
+    orders_needed = parent_order_size // order_fixed_size
+    if orders_needed > steps:
+        raise ValueError(
+            f"{gate_name}: {orders_needed} child orders are needed but the "
+            f"episode only has {steps} decision steps. The parent order could "
+            f"never complete, whatever the policy does."
+        )
+
+    return parent_order_size, order_fixed_size, steps
+
+
+def run_rule_episode(env, rule, parent_order_size, order_fixed_size, total_steps, seed):
+    """Run one reproducible episode driven by `rule` and return its metrics."""
     rule.reset()
+    env.seed(seed)
     observation = env.reset()
 
-    spread_history: List[float] = []
-    remaining_shares = parent_order_size
-    info: Dict = {}
     total_slippage_reward = 0.0
+    spread_history = []
+    remaining_shares = parent_order_size
+    # Counted locally on purpose. info["action_counter"] lives on the
+    # CustomMetricsTracker, which is built once in the environment's __init__ and
+    # never reset, so on a reused env it accumulates over every episode.
+    action_counts = {label: 0 for label in ACTION_LABELS.values()}
+    step = 0
+    info = {}
 
-    for step in range(total_steps):
-        # >>> ADAPT: replace with however your project actually reads the
-        # spread out of `observation`. An earlier draft assumed
-        # observation[6, 0] based on the published state vector
-        # (holdingsPct, timePct, differencePct, imbalance5, imbalanceAll,
-        # priceImpact, spread, directionFeature, R^k) — CONFIRM the exact
-        # row/column against your real state-construction code before
-        # trusting this index; your fork may order or buffer it differently
-        # (state_history_length=4, market_data_buffer_length=5 in your
-        # config suggest observation is not a flat vector).
-        current_spread = float(observation[6, 0])
+    while True:
+        current_spread = float(observation[SPREAD_ROW, 0])
 
         state = RuleState(
             step=step,
@@ -80,190 +172,443 @@ def run_episode(env, rule: ManualRule, order_fixed_size: int,
             spread_history=list(spread_history),
         )
         action = rule.predict(state)
+        action_counts[ACTION_LABELS[action]] += 1
 
-        observation, reward, done, info = env.step(action)
+        observation, _, done, info = env.step(action)
+
         total_slippage_reward += info["slippage_reward"]
-
-        # >>> ADAPT: confirm the real info dict key for shares still
-        # outstanding. "remaining_quantity" is a guess, not a fact.
-        remaining_shares = info.get("remaining_quantity", remaining_shares)
+        remaining_shares = info["remaining_quantity"]
         spread_history.append(current_spread)
+        step += 1
 
         if done:
             break
 
-    executed_quantity = info["executed_quantity"]
-    is_bps = implementation_shortfall_bps(
+        if step >= total_steps:
+            # The environment sets done once current_time reaches
+            # mkt_open + first_interval + execution_window, which is exactly
+            # total_steps wake-ups. Reaching this line means the clock and the
+            # config disagree, and every metric below would be wrong.
+            raise RuntimeError(
+                f"Episode did not terminate after {total_steps} steps "
+                f"(seed {seed}). The step budget derived from the config and "
+                f"the environment's own time limit disagree."
+            )
+
+    shortfall_bps = implementation_shortfall_bps(
         total_slippage_reward=total_slippage_reward,
         entry_price=env.unwrapped.entry_price,
-        executed_quantity=executed_quantity,
+        executed_quantity=info["executed_quantity"],
         parent_order_size=parent_order_size,
     )
 
-    return {
-        "is_bps": is_bps,
-        "completed": remaining_shares <= 0,
-        "unexecuted_shares": max(remaining_shares, 0),
+    episode = {
+        "seed": seed,
+        "is_bps": shortfall_bps,
+        "remaining_quantity": remaining_shares,
+        "completed": remaining_shares == 0,
         "oversold": remaining_shares < 0,
+        "steps_used": step,
+    }
+    episode.update({f"n_{label}": count for label, count in action_counts.items()})
+    return episode
+
+
+def run_rule_on_gate(rule_name, config, gate_name, seed_start, seed_end):
+    """Run one rule over the whole seed range on one gate."""
+    parent_order_size, order_fixed_size, steps = check_gate_config(config, gate_name)
+
+    env = make_env(config)
+    episodes = []
+    try:
+        for seed in range(seed_start, seed_end + 1):
+            # A fresh rule object per episode, so no rule can leak state from
+            # one market day into the next.
+            rule = make_rule(rule_name)
+            episodes.append(
+                run_rule_episode(
+                    env, rule, parent_order_size, order_fixed_size, steps, seed
+                )
+            )
+    finally:
+        env.close()
+
+    frame = pd.DataFrame(episodes)
+    frame.insert(0, "rule", rule_name)
+    frame.insert(1, "gate", gate_name)
+    return frame
+
+
+def load_twap_episodes(path):
+    """Load the PER-EPISODE TWAP results, which is what pairing needs.
+
+    The TWAP summary CSV has one row per gate and no seed column, so it cannot
+    be used here. evaluate_twap_gates.py writes the per-episode file through its
+    --episodes-out flag.
+    """
+    # float_precision="round_trip" matters more than it looks. pandas' default
+    # float parser is not bit-exact: this file stores gate_b seed 100 as
+    # 1.8485268301465916 and the default parser hands back 1.848526830146592, a
+    # difference of 4.4e-16. On gate_b every rule is literally the same policy as
+    # TWAP, so every paired difference must be exactly zero; a 1e-16 parsing
+    # error turns 200 true zeros into 200 tiny signed differences that
+    # wilcoxon() would rank into a meaningless p-value.
+    frame = pd.read_csv(path, float_precision="round_trip")
+    required = {"gate", "seed", "is_bps"}
+    missing = required - set(frame.columns)
+    if missing:
+        raise KeyError(
+            f"{path} is missing column(s) {sorted(missing)}. This must be the "
+            f"per-episode TWAP output (--episodes-out of "
+            f"evaluation/evaluate_twap_gates.py), not the summary CSV."
+        )
+    return frame[["gate", "seed", "is_bps"]].rename(columns={"is_bps": "twap_is_bps"})
+
+
+def holm_adjust(p_values):
+    """Holm-Bonferroni correction.
+
+    One test is run per rule inside each gate, so with four rules the chance
+    that at least one looks significant by luck alone is about 19%, not 5%.
+    Holm controls that while being less blunt than plain Bonferroni: the
+    smallest p is multiplied by m, the next by m-1, and so on.
+
+    Entries that are None (no test was possible, e.g. every paired difference
+    was exactly zero) stay None and are excluded from the count m.
+    """
+    testable = [(index, p) for index, p in enumerate(p_values) if p is not None]
+    adjusted = [None] * len(p_values)
+
+    number_of_tests = len(testable)
+    running_maximum = 0.0
+    for rank, (index, p_value) in enumerate(sorted(testable, key=lambda pair: pair[1])):
+        candidate = min(1.0, (number_of_tests - rank) * p_value)
+        # Holm's adjusted p-values must be non-decreasing along the sorted order.
+        running_maximum = max(running_maximum, candidate)
+        adjusted[index] = running_maximum
+
+    return adjusted
+
+
+def paired_test_vs_twap(group):
+    """Paired Wilcoxon signed-rank of one rule against TWAP on one gate.
+
+    IS is a COST, so `difference = rule - twap` is negative when the rule is
+    cheaper, i.e. better. improvement_bps flips the sign so that positive means
+    "the rule saved this many bps", which is easier to read.
+    """
+    usable = group.dropna(subset=["is_bps", "twap_is_bps"])
+    rule_is = usable["is_bps"].to_numpy(dtype=float)
+    twap_is = usable["twap_is_bps"].to_numpy(dtype=float)
+    differences = rule_is - twap_is
+    # Second line of defence behind float_precision="round_trip". IS values here
+    # are of order 1 bps and the pre-registered minimum effect is 0.10 bps, so
+    # snapping anything below 1e-9 bps cannot hide a real result - it only stops
+    # double-precision dust from being ranked as if it were signal.
+    differences[np.abs(differences) < IDENTICAL_TOLERANCE_BPS] = 0.0
+
+    result = {
+        "paired_n": int(len(differences)),
+        "n_identical_to_twap": int(np.sum(differences == 0)),
+        "mean_improvement_bps": None,
+        "median_improvement_bps": None,
+        "wilcoxon_stat": None,
+        "wilcoxon_p": None,
     }
 
+    if len(differences) == 0:
+        return result
 
-def load_gate_config(gate_path: str) -> dict:
-    with open(gate_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+    result["mean_improvement_bps"] = float(-np.mean(differences))
+    result["median_improvement_bps"] = float(-np.median(differences))
 
+    if np.any(differences != 0):
+        # Test the snapped differences, not (rule_is, twap_is). wilcoxon(x, y) is
+        # defined as wilcoxon(x - y), so passing the two arrays would silently
+        # undo the tolerance applied above.
+        statistic, p_value = wilcoxon(differences, alternative="two-sided")
+        result["wilcoxon_stat"] = float(statistic)
+        result["wilcoxon_p"] = float(p_value)
+    # else: every difference is exactly zero. wilcoxon() cannot run on that, and
+    # reporting it as "no difference found" would be misleading - the rule is
+    # not merely statistically indistinguishable from TWAP, it is the same
+    # policy. n_identical_to_twap carries that.
 
-def steps_from_config(config: dict) -> int:
-    """
-    Number of decision steps per episode. Derived from execution_window /
-    timestep_duration (e.g. 10 minutes / 60s = 10), NOT from
-    parent_order_size / order_fixed_size — those two are independent
-    (that independence is exactly what lets gate_d create slack).
-
-    # >>> ADAPT: replace this with however env_factory actually computes
-    # it, if it isn't this simple division (e.g. it may already expose a
-    # `n_steps` or `horizon` value you should just read directly).
-    """
-    def to_seconds(s: str) -> int:
-        h, m, sec = (int(p) for p in s.split(":"))
-        return h * 3600 + m * 60 + sec
-
-    window_s = to_seconds(config["environment"]["execution_window"])
-    step_s = int(config["environment"]["timestep_duration"].rstrip("s"))
-    return window_s // step_s
+    return result
 
 
-def run_rule_on_gate(rule_name: str, gate_path: str,
-                      seed_start: int, seed_end: int) -> List[Dict]:
-    config = load_gate_config(gate_path)
-    env_cfg = config["environment"]
-    order_fixed_size = env_cfg["order_fixed_size"]
-    parent_order_size = env_cfg["parent_order_size"]
-    total_steps = steps_from_config(config)
+def summarise(rule_episodes, twap_episodes, thresholds):
+    """Build the (rule x gate) table, apply Holm within each gate, and decide."""
+    merged = rule_episodes.merge(twap_episodes, on=["gate", "seed"], how="left")
 
-    results = []
-    for seed in range(seed_start, seed_end + 1):
-        rule = make_rule(rule_name)
-        env = make_env(config, seed=seed)
-        try:
-            metrics = run_episode(
-                env,
-                rule,
-                order_fixed_size,
-                total_steps,
-                parent_order_size,
-            )
-            metrics["seed"] = seed
-            results.append(metrics)
-        finally:
-            env.close()
+    missing_baseline = merged["twap_is_bps"].isna() & merged["is_bps"].notna()
+    if missing_baseline.any():
+        absent = merged.loc[missing_baseline, ["gate", "seed"]].drop_duplicates()
+        print(
+            f"  WARNING: no TWAP baseline for {len(absent)} (gate, seed) pairs; "
+            f"they are excluded from the paired test.",
+            flush=True,
+        )
 
-    return results
-
-
-def load_twap_is_by_gate_and_seed(twap_csv_path: str
-                                   ) -> Dict[Tuple[str, int], float]:
-    """
-    Loads your existing TWAP results CSV into {(gate_name, seed): is_bps}
-    so each rule's per-seed results can be paired correctly for Wilcoxon.
-
-    # >>> ADAPT: match the real column names in your TWAP CSV. Based on
-    # the CSV you pasted earlier the columns look like:
-    #   gate, config, episodes, seed_start, seed_end, is_mean_bps, ...
-    # — that file stores ONE ROW PER GATE (aggregated), not one row per
-    # seed. If that's still true, this function needs your PER-EPISODE
-    # TWAP output instead (whatever evaluate_twap_gates.py writes before
-    # aggregating), not the summary CSV. Point this at that file, or add
-    # a --per-seed-output flag to evaluate_twap_gates.py if it doesn't
-    # already save one.
-    """
-    lookup: Dict[Tuple[str, int], float] = {}
-    with open(twap_csv_path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            gate = row["gate"]
-            seed = int(row["seed"])          # >>> ADAPT if column name differs
-            is_bps = float(row["is_bps"])    # >>> ADAPT if column name differs
-            lookup[(gate, seed)] = is_bps
-    return lookup
-
-
-def paired_wilcoxon(rule_is: List[float], twap_is: List[float]
-                     ) -> Tuple[Optional[float], Optional[float]]:
-    if len(rule_is) != len(twap_is) or len(rule_is) < 1:
-        return None, None
-    try:
-        stat, p = wilcoxon(rule_is, twap_is)
-        return float(stat), float(p)
-    except ValueError:
-        # e.g. all differences are zero — wilcoxon can't run
-        return None, None
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--configs", nargs="+", required=True,
-                         help="Gate yaml paths, e.g. configs/gate_b.yaml configs/gate_d.yaml")
-    parser.add_argument("--rules", nargs="+", default=list(ALL_RULES.keys()))
-    parser.add_argument("--seed-start", type=int, default=100)
-    parser.add_argument("--seed-end", type=int, default=299)
-    parser.add_argument("--twap-csv", required=True,
-                         help="Per-seed TWAP results, used as the paired baseline.")
-    parser.add_argument("--out", default="results/manual_rules_gate_results.csv")
-    args = parser.parse_args()
-
-    twap_lookup = load_twap_is_by_gate_and_seed(args.twap_csv)
+    screening = thresholds["screening"]
+    alpha = screening["test"]["alpha"]
+    min_improvement = screening["effect"]["min_median_improvement_bps"]
+    min_completion = screening["validity"]["min_completion_pct"]
+    max_oversell = screening["validity"]["max_oversell_episodes"]
 
     rows = []
-    for gate_path in args.configs:
-        gate_name = Path(gate_path).stem
-        for rule_name in args.rules:
-            print(f"Running {rule_name} on {gate_name} "
-                  f"(seeds {args.seed_start}-{args.seed_end})...")
+    for (gate, rule), group in merged.groupby(["gate", "rule"], sort=False):
+        executed = group["is_bps"].dropna()
+        row = {
+            "gate": gate,
+            "rule": rule,
+            "episodes": int(len(group)),
+            "is_mean_bps": float(executed.mean()) if len(executed) else None,
+            "is_median_bps": float(executed.median()) if len(executed) else None,
+            "completed_pct": float(group["completed"].mean() * 100),
+            "mean_unexecuted_shares": float(group["remaining_quantity"].clip(lower=0).mean()),
+            "oversell_episodes": int(group["oversold"].sum()),
+            "episodes_without_fills": int(group["is_bps"].isna().sum()),
+            "mean_steps_used": float(group["steps_used"].mean()),
+            "n_mkt": int(group["n_mkt"].sum()),
+            "n_lmt": int(group["n_lmt"].sum()),
+            "n_hold": int(group["n_hold"].sum()),
+        }
+        row.update(paired_test_vs_twap(group))
+        rows.append(row)
 
-            rule_results = run_rule_on_gate(
-                rule_name, gate_path, args.seed_start, args.seed_end
+    summary = pd.DataFrame(rows)
+
+    # Holm is applied across the rules WITHIN each gate, per configs/gate.yaml.
+    summary["holm_p"] = None
+    for gate in summary["gate"].unique():
+        mask = summary["gate"] == gate
+        raw = [None if pd.isna(p) else float(p) for p in summary.loc[mask, "wilcoxon_p"]]
+        summary.loc[mask, "holm_p"] = pd.Series(
+            holm_adjust(raw), index=summary.loc[mask].index, dtype=object
+        )
+
+    def verdict(row):
+        if row["oversell_episodes"] > max_oversell:
+            return "fail_oversell"
+        if row["completed_pct"] < min_completion:
+            return "fail_completion"
+        if row["n_identical_to_twap"] == row["paired_n"] and row["paired_n"] > 0:
+            return "identical_to_twap"
+        if row["holm_p"] is None or pd.isna(row["holm_p"]):
+            return "not_testable"
+        if row["holm_p"] >= alpha:
+            return "not_significant"
+        if row["median_improvement_bps"] is None:
+            return "not_testable"
+        if row["median_improvement_bps"] < min_improvement:
+            if row["median_improvement_bps"] <= -min_improvement:
+                return "significantly_worse"
+            return "significant_but_below_min_effect"
+        return "PASS"
+
+    summary["verdict"] = summary.apply(verdict, axis=1)
+    return summary
+
+
+def git_information():
+    def git(*arguments):
+        completed = subprocess.run(
+            ["git", *arguments],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        return completed.stdout.strip() if completed.returncode == 0 else None
+
+    return git("rev-parse", "HEAD"), git("status", "--porcelain")
+
+
+def write_config_used(path, args, gate_configs, thresholds):
+    """Project rule 6: every run records its commit, config, seeds and date."""
+    commit, porcelain = git_information()
+    payload = {
+        "run": {
+            "script": "evaluation/evaluate_manual_rules_gates.py",
+            "date": date.today().isoformat(),
+            "git_commit": commit,
+            "git_working_tree_clean": (porcelain == "") if porcelain is not None else None,
+            "git_uncommitted_paths": porcelain.splitlines() if porcelain else [],
+            "python": sys.version.split()[0],
+            "platform": platform.platform(),
+        },
+        "seeds": {
+            "start": args.seed_start,
+            "end": args.seed_end,
+            "episodes_per_rule_per_gate": args.seed_end - args.seed_start + 1,
+            "note": "final-evaluation range; never mixed with train.seed or eval_seed",
+        },
+        "rules": list(args.rules),
+        "twap_baseline_csv": str(args.twap_episodes_csv),
+        "gate_thresholds_file": str(args.gate_thresholds),
+        "gate_thresholds": thresholds,
+        "configs": {
+            gate_name: {
+                "path": str(config_path),
+                "decision_steps_per_episode": total_decision_steps(config),
+                "environment": config["environment"],
+            }
+            for gate_name, (config_path, config) in gate_configs.items()
+        },
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(payload, handle, sort_keys=False, allow_unicode=True)
+
+
+def print_table(summary):
+    """Console view of the columns that drive the decision."""
+    header = (
+        f"{'gate':8s} {'rule':20s} {'IS mean':>9s} {'IS med':>8s} "
+        f"{'impr med':>9s} {'compl%':>7s} {'unexec':>7s} {'over':>5s} "
+        f"{'raw p':>10s} {'holm p':>10s}  verdict"
+    )
+    print("\n" + header)
+    print("-" * len(header))
+    for row in summary.itertuples():
+        def number(value, width, digits=3):
+            if value is None or pd.isna(value):
+                return f"{'n/a':>{width}s}"
+            return f"{value:>{width}.{digits}f}"
+
+        print(
+            f"{row.gate:8s} {row.rule:20s} "
+            f"{number(row.is_mean_bps, 9)} {number(row.is_median_bps, 8)} "
+            f"{number(row.median_improvement_bps, 9)} "
+            f"{row.completed_pct:>7.2f} {row.mean_unexecuted_shares:>7.2f} "
+            f"{row.oversell_episodes:>5d} "
+            f"{number(row.wilcoxon_p, 10, 4)} {number(row.holm_p, 10, 4)}  "
+            f"{row.verdict}"
+        )
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Run the manual execution rules on the gate configs and "
+                    "test each one against TWAP on the same seeds."
+    )
+    parser.add_argument(
+        "--configs",
+        nargs="+",
+        type=Path,
+        default=[PROJECT_ROOT / "configs" / "gate_b.yaml",
+                 PROJECT_ROOT / "configs" / "gate_d.yaml"],
+        help="Gate YAML files to evaluate.",
+    )
+    parser.add_argument(
+        "--rules",
+        nargs="+",
+        default=list(ALL_RULES.keys()),
+        choices=list(ALL_RULES.keys()),
+        help="Which rules to run (default: all four).",
+    )
+    parser.add_argument("--seed-start", type=int, default=100)
+    parser.add_argument("--seed-end", type=int, default=299)
+    parser.add_argument(
+        "--twap-episodes-csv",
+        type=Path,
+        default=DEFAULT_TWAP_EPISODES_CSV,
+        help="Per-episode TWAP results, used as the paired baseline.",
+    )
+    parser.add_argument(
+        "--gate-thresholds",
+        type=Path,
+        default=DEFAULT_GATE_THRESHOLDS,
+        help="Decision thresholds, fixed before the results were seen.",
+    )
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=PROJECT_ROOT / "results" / "manual_rules_gate_results.csv",
+        help="Summary CSV path, one row per (rule, gate).",
+    )
+    parser.add_argument(
+        "--episodes-out",
+        type=Path,
+        default=PROJECT_ROOT / "results" / "manual_rules_gate_episodes.csv",
+        help="Per-episode CSV path, so any test can be recomputed without "
+             "re-running the simulation.",
+    )
+    args = parser.parse_args()
+
+    if args.seed_end < args.seed_start:
+        parser.error("--seed-end must not be smaller than --seed-start")
+
+    with args.gate_thresholds.open("r", encoding="utf-8") as handle:
+        thresholds = yaml.safe_load(handle)
+
+    configured = thresholds["screening"]["seeds"]
+    if (configured["start"], configured["end"]) != (args.seed_start, args.seed_end):
+        parser.error(
+            f"Seed range {args.seed_start}..{args.seed_end} does not match "
+            f"{args.gate_thresholds.name}, which pre-registered "
+            f"{configured['start']}..{configured['end']}."
+        )
+
+    gate_configs = {}
+    for config_path in args.configs:
+        config = load_config(config_path)
+        gate_name = Path(config_path).stem
+        check_gate_config(config, gate_name)
+        gate_configs[gate_name] = (config_path, config)
+
+    twap_episodes = load_twap_episodes(args.twap_episodes_csv)
+
+    episode_count = args.seed_end - args.seed_start + 1
+    print(
+        f"{len(args.rules)} rules x {len(gate_configs)} gates x {episode_count} "
+        f"episodes = {len(args.rules) * len(gate_configs) * episode_count} "
+        f"simulated market days.",
+        flush=True,
+    )
+
+    frames = []
+    for gate_name, (config_path, config) in gate_configs.items():
+        steps = total_decision_steps(config)
+        environment_config = config["environment"]
+        slack = steps - environment_config["parent_order_size"] // environment_config["order_fixed_size"]
+        print(
+            f"\n{gate_name}: parent={environment_config['parent_order_size']}, "
+            f"fixed={environment_config['order_fixed_size']}, steps={steps}, "
+            f"slack={slack} step(s)",
+            flush=True,
+        )
+        for rule_name in args.rules:
+            print(f"  {rule_name} ...", end="", flush=True)
+            frame = run_rule_on_gate(
+                rule_name, config, gate_name, args.seed_start, args.seed_end
+            )
+            frames.append(frame)
+            executed = frame["is_bps"].dropna()
+            print(
+                f" IS mean={executed.mean():.3f} median={executed.median():.3f} bps, "
+                f"completed={frame['completed'].mean() * 100:.2f}%, "
+                f"oversell={int(frame['oversold'].sum())}",
+                flush=True,
             )
 
-            is_values = [r["is_bps"] for r in rule_results if r["is_bps"] is not None]
-            twap_values = [
-                twap_lookup.get((gate_name, r["seed"]))
-                for r in rule_results
-            ]
-            # keep only seeds present on both sides, same order
-            paired_rule, paired_twap = [], []
-            for r, t in zip(rule_results, twap_values):
-                if r["is_bps"] is not None and t is not None:
-                    paired_rule.append(r["is_bps"])
-                    paired_twap.append(t)
+    rule_episodes = pd.concat(frames, ignore_index=True)
+    summary = summarise(rule_episodes, twap_episodes, thresholds)
 
-            stat, p = paired_wilcoxon(paired_rule, paired_twap)
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.episodes_out.parent.mkdir(parents=True, exist_ok=True)
+    rule_episodes.to_csv(args.episodes_out, index=False)
+    summary.to_csv(args.out, index=False)
 
-            n = len(rule_results)
-            completed_pct = 100 * sum(r["completed"] for r in rule_results) / n
-            oversold_count = sum(r["oversold"] for r in rule_results)
+    config_used_path = args.out.with_name(
+        args.out.stem.replace("_results", "") + "_config_used.yaml"
+    )
+    write_config_used(config_used_path, args, gate_configs, thresholds)
 
-            rows.append({
-                "rule": rule_name,
-                "gate": gate_name,
-                "episodes": n,
-                "is_mean_bps": np.mean(is_values) if is_values else None,
-                "is_median_bps": np.median(is_values) if is_values else None,
-                "completed_pct": completed_pct,
-                "oversold_count": oversold_count,
-                "paired_n": len(paired_rule),
-                "wilcoxon_stat_vs_twap": stat,
-                "wilcoxon_p_vs_twap": p,
-            })
-
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(rows)
-
-    print(f"\nSaved {len(rows)} rows to {out_path}")
+    print_table(summary)
+    print(f"\nSaved summary to:      {args.out}")
+    print(f"Saved per-episode to:  {args.episodes_out}")
+    print(f"Saved provenance to:   {config_used_path}")
 
 
 if __name__ == "__main__":

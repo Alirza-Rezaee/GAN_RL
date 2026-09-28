@@ -1,0 +1,99 @@
+# Decision thresholds for the Day-3 "headroom screening" of the execution
+# environment (manual rules vs TWAP on gate_b and gate_d).
+#
+# ======================================================================
+# WRITTEN BEFORE ANY RESULT WAS SEEN. DO NOT CHANGE AFTERWARDS.
+# ======================================================================
+# Project rule 9. Deciding the pass mark after looking at the numbers is how a
+# flat environment gets talked into looking promising. The evaluation script
+# reads this file and computes the pass/fail column itself, so the thresholds
+# cannot be quietly moved once the table exists.
+#
+# Locked in on 2026-09-28, before evaluate_manual_rules_gates.py was ever run
+# over the full seed range. The only results that existed at that moment were
+# the TWAP baselines (results/twap_gate_bvd_episodes.csv) and a single-episode
+# smoke test of the rules.
+
+screening:
+
+  # ------------------------------------------------------------------
+  # What is being compared
+  # ------------------------------------------------------------------
+  # Every policy is run on the SAME market days, because the same seed replays
+  # the same simulated day. That is what makes a paired test legitimate.
+  seeds:
+    start: 100
+    end: 299            # 200 episodes per (rule, gate)
+
+  baseline: twap        # results/twap_gate_bvd_episodes.csv, same seed range
+
+  # ------------------------------------------------------------------
+  # Statistical test
+  # ------------------------------------------------------------------
+  test:
+    name: wilcoxon_signed_rank   # paired, non-parametric. Not a t-test:
+                                 # the IS distribution has heavy tails
+                                 # (gate_d ranges -4.5 .. +5.3 bps).
+    alternative: two-sided       # two-sided so that a rule which is WORSE than
+                                 # TWAP, and a rule that is suspiciously better
+                                 # on gate_b, are both detected. The direction
+                                 # is then read off the median difference.
+    alpha: 0.05
+
+    # Four rules are tested inside each gate, so there are four chances per
+    # gate for one to look significant by luck alone. Without correction the
+    # probability of at least one false positive is ~19%, not 5%.
+    multiple_comparison: holm    # Holm-Bonferroni, applied across the rules
+                                 # WITHIN each gate. Both the raw and the
+                                 # adjusted p-value are reported.
+    decide_on: holm_p            # the adjusted p-value is the one that counts
+
+  # ------------------------------------------------------------------
+  # Minimum effect size
+  # ------------------------------------------------------------------
+  # Implementation Shortfall is a COST in basis points, so lower is better and
+  # an improvement is a NEGATIVE difference (rule - twap).
+  #
+  # Pairing on identical seeds cancels most of the per-episode market noise
+  # (TWAP std is ~2.1 bps per episode), so with n=200 a very small median shift
+  # can still come out statistically significant. A p-value alone is therefore
+  # not enough to justify a multi-day PPO training run.
+  effect:
+    min_median_improvement_bps: 0.10   # the rule's median IS must be at least
+                                       # this many bps BELOW TWAP's median IS
+                                       # on the same gate. For scale: TWAP's
+                                       # own gate_d median IS is 0.07 bps.
+
+  # ------------------------------------------------------------------
+  # Validity filters - a rule that trips these cannot claim headroom
+  # ------------------------------------------------------------------
+  # Why these exist: implementation_shortfall_bps() only measures the cost of
+  # the shares that were actually executed. A rule that simply refuses to trade
+  # would post a beautiful IS while failing the actual task. Completion and
+  # oversell are therefore hard gates, not footnotes.
+  validity:
+    min_completion_pct: 99.0      # TWAP itself completes 99.5% of episodes
+    max_oversell_episodes: 0      # any oversell at all disqualifies the rule
+
+# ======================================================================
+# What each outcome means (fixed in advance, per the Stage 0 brief)
+# ======================================================================
+decision:
+  path_a: >
+    At least one rule passes on gate_d (holm_p < alpha AND median improvement
+    >= 0.10 bps AND validity filters ok) AND no rule passes on gate_b.
+    Meaning: the environment has real headroom exactly where slack was added.
+    Action: proceed to Stage 1.
+  path_b: >
+    No rule passes on gate_d.
+    Meaning: the environment is flat - four different schedules all tie with
+    TWAP, so there is nothing for an RL agent to discover either.
+    Action: do NOT train PPO. Make the environment harder first.
+  path_c: >
+    Any rule passes on gate_b.
+    Meaning: suspicious. gate_b has zero slack (parent_order_size == 1000 ==
+    order_fixed_size * total_steps), so the capacity-aware safety net in
+    ManualRule.predict() should force a market order on every single step and
+    make every rule bit-identical to TWAP. A win there means the rule code or
+    the safety net is wrong, not that the rule is clever.
+    Action: re-review the rule code and the safety net before trusting anything.

@@ -14,19 +14,32 @@ machine, without running a single simulated market day. Just run:
 and read the printed action sequences.
 
 ------------------------------------------------------------------------
-BEFORE WIRING THIS INTO THE REAL EVALUATOR — CONFIRM, DON'T ASSUME
+ACTION MAPPING — CONFIRMED AGAINST SOURCE, NOT ASSUMED
 ------------------------------------------------------------------------
-The three constants right below are PLACEHOLDERS. The ABIDES-Gym paper
-confirms the execution environment has exactly three discrete actions
-("MARKET ORDER", "LIMIT ORDER", "DO NOTHING"), but it does not fix which
-integer maps to which action in the actual gym action_space, and your
-copy of abides/ is a patched fork, so the real mapping could differ from
-any public example you find online.
+The three constants below were checked against this fork's own code, in
+abides/abides-gym/abides_gym/envs/markets_execution_environment_v0.py,
+method _map_action_space_to_ABIDES_SIMULATOR_SPACE(). Quoted verbatim
+from its docstring:
 
-Ask Claude Code to open the file inside abides_gym that implements
-markets-execution-v0 and show you, verbatim, how action_space is defined
-and how each integer is translated into an order. Then fix the three
-lines below to match. Do not trust these numbers otherwise.
+    The action space ranges [0, 1, 2] where:
+    - `0` MKT direction order_fixed_size
+    - '1' LMT direction order_fixed_size
+    - '2' DO NOTHING
+
+and from the body of that same method:
+
+    if action == 0:   -> [{"type": "CCL_ALL"}, {"type": "MKT", ...}]
+    elif action == 1: -> [{"type": "CCL_ALL"}, {"type": "LMT", ...,
+                          "limit_price": self.near_touch}]
+    elif action == 2: -> []
+
+Note that MKT and LMT are both preceded by CCL_ALL, so any unfilled
+limit order from a previous step is cancelled before the new order is
+placed. A resting limit order therefore only has one step to fill.
+
+The same mapping is used by baselines/twap_agent.py (ACTION_MARKET_ORDER
+= 0, ACTION_LIMIT_ORDER = 1, ACTION_HOLD = 2), so the rules below and
+the TWAP baseline speak the same language.
 """
 
 from __future__ import annotations
@@ -35,11 +48,12 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Type
 
 # ---------------------------------------------------------------------
-# TODO — CONFIRM AGAINST SOURCE BEFORE RUNNING ON THE REAL ENVIRONMENT.
+# Confirmed from _map_action_space_to_ABIDES_SIMULATOR_SPACE(); see the
+# module docstring above for the verbatim quote.
 # ---------------------------------------------------------------------
-ACTION_MARKET = 0   # "MARKET ORDER"  — TODO confirm from source
-ACTION_LIMIT = 1    # "LIMIT ORDER"   — TODO confirm from source
-ACTION_HOLD = 2     # "DO NOTHING"    — TODO confirm from source
+ACTION_MARKET = 0   # MKT, order_fixed_size, self.direction
+ACTION_LIMIT = 1    # LMT, order_fixed_size, priced at self.near_touch
+ACTION_HOLD = 2     # DO NOTHING (empty action list)
 
 
 @dataclass
