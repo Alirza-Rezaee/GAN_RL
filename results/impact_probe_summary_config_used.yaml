@@ -1,0 +1,152 @@
+run:
+  script: evaluation/impact_probe.py
+  date: '2026-09-29'
+  git_commit: 80c5590e7fdbae67be774cd09aa2601bfa7d292d
+  git_working_tree_clean: false
+  git_uncommitted_paths:
+  - ' M evaluation/evaluate.py'
+  - ' M evaluation/evaluate_manual_rules_gates.py'
+  - ' M evaluation/evaluate_twap_gates.py'
+  - ?? common/provenance.py
+  - ?? configs/impact_probe.yaml
+  - ?? evaluation/impact_probe.py
+  python: 3.10.20
+  platform: Windows-10-10.0.26200-SP0
+seeds:
+  start: 1000
+  end: 1099
+  episodes: 100
+  band: development_new
+final_test: false
+probe_config_file: configs\impact_probe.yaml
+probe_config:
+  method:
+    name: twin days
+    description: 'For each seed, run the SAME market day twice: a baseline arm that
+      holds every step, and a probe arm that sends one market sell of size q at the
+      first step and then holds. Because a seed replays a day exactly, the paired
+      difference in mid price at each step is caused only by our order.
+
+      '
+    validity_proof: 'The kernel''s own RNG is consumed in exactly one place, kernel.py:589,
+      inside the branch taken only when agent_latency_model is None. rmsc04 sets a
+      latency model (rmsc04.py:272) and core_environment.py:82-95 forwards it to the
+      Kernel, so sending one extra order cannot shift any random stream. Background
+      agents hold their own RandomState, so divergence between arms is causal, not
+      contamination. Confirmed empirically: entry_price is identical across arms on
+      every seed tested.
+
+      '
+    baseline_is_shared: true
+    baseline_invariance_note: 'The baseline arm sends no orders, so parent_order_size
+      and order_fixed_size affect only normalisation, never the simulation. Verified
+      on 3 seeds: max |mid difference| between q=100 and q=1000 baselines was exactly
+      0.0000000000. The baseline is therefore run ONCE per seed instead of once per
+      (q, seed), cutting the run from 800 to 500 episodes. impact_probe.py re-verifies
+      this at runtime on the first few seeds rather than trusting it.
+
+      '
+  probe:
+    order_sizes:
+    - 100
+    - 300
+    - 1000
+    - 3000
+    seeds:
+      start: 1000
+      end: 1099
+    env_variant: variable_last_child
+    parent_order_size_multiplier: 10
+    direction: SELL
+    base_config: configs/gate_d_varchild.yaml
+    overrides:
+      order_fixed_size: q
+      parent_order_size: 10*q
+    note_on_terminal_penalty: 'The episode always ends with 90% of the parent order
+      unexecuted, so not_enough_reward_update dominates the reward. That is deliberate
+      and harmless: this probe never reads reward. Execution cost is computed from
+      the probe order''s own fills, and impact from the paired mid difference.
+
+      '
+  records:
+  - fill_quantity
+  - fill_rate
+  - avg_fill_price
+  - entry_price
+  - cost_bps_from_fills
+  - cost_bps_from_reward
+  - spread_at_arrival
+  - bid_depth_l1 .. bid_depth_l5
+  - bid_depth_l1_5_total
+  - mid_diff_step_0 .. mid_diff_step_9
+  criteria:
+    primary:
+      rule: 'Choose the SMALLEST q that satisfies BOTH conditions. If none does, no
+        tested size makes impact material and the size grid must be widened.
+
+        '
+      min_median_cost_bps: 0.15
+      min_median_fill_rate: 0.95
+      half_spread_bps_reference: 0.05
+      justification: 'The spread is 1 tick (1 cent) about 70% of the time on a ~100,137-cent
+        stock, so the half-spread is 0.5/100137*1e4 = 0.05 bps. The 0.15 bps bar is
+        3x that, which is the "3x half-spread" test from the Stage-3 brief. The fill
+        bar prevents choosing a size the book cannot absorb, where measured cost is
+        flattered because the unfilled remainder is discarded rather than rested (order_book.py:190-192).
+
+        '
+    secondary:
+      report:
+      - 'paired mid impact at every step: median and IQR'
+      - decay from step 0 to step 9
+      - bid depth distribution at arrival
+      why_not_decisive: 'The Stage-3 brief proposed gating on the paired impact at
+        the END of the window. The pilot shows that measure does not behave: at q=1000
+        the step-9 difference flips sign across seeds (-3.50, +2.75, +1.00, -2.20,
+        -3.50, -2.90), and q=100''s step-9 median (-0.55) is within a factor of 5
+        of q=1000''s (-2.55) despite a 10x size difference. Late steps are dominated
+        by chaotic amplification through the background agents rather than by order
+        size. Additionally q=1000 moves -0.35 bps at step 0 but only -0.05 by step
+        1: the book refills within the 60-second wakeup interval, so a minute-granularity
+        mid difference mostly misses the impact it is meant to capture.
+
+        '
+  pilot:
+    note: median execution cost vs arrival mid, and median fill rate
+    q_100:
+      cost_median_bps: 0.034
+      fill_rate_median: 1.0
+    q_300:
+      cost_median_bps: 0.073
+      fill_rate_median: 1.0
+    q_1000:
+      cost_median_bps: 0.848
+      fill_rate_median: 1.0
+    q_3000:
+      cost_median_bps: 2.007
+      fill_rate_median: 0.596
+    q_10000:
+      cost_median_bps: 2.065
+      fill_rate_median: 0.179
+    bid_depth_l1_5_seed_1000: 559
+    expectation: 'On the pilot the primary criterion selects q = 1000: it is the smallest
+      size clearing 0.15 bps while still filling 100%. q=300 fails the cost bar and
+      q=3000 fails the fill bar. Stated here in advance so the full run tests a prediction
+      rather than fishes for one.
+
+      '
+base_environment:
+  id: markets-execution-v0
+  env_variant: variable_last_child
+  background_config: rmsc04
+  mkt_close: '16:00:00'
+  timestep_duration: 60s
+  starting_cash: 1000000
+  order_fixed_size: 100
+  parent_order_size: 500
+  execution_window: 00:10:00
+  direction: SELL
+  state_history_length: 4
+  market_data_buffer_length: 5
+  first_interval: 00:30:00
+decision_steps_per_episode: 10
