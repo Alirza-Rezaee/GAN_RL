@@ -60,10 +60,6 @@ Example
 """
 
 import argparse
-import platform
-import subprocess
-import sys
-from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -75,6 +71,7 @@ from abides_core.utils import str_to_ns
 
 from common.env_factory import PROJECT_ROOT, load_config, make_env
 from common.metrics import implementation_shortfall_bps
+from common.provenance import write_config_used as write_provenance
 from common.seeds import assert_seeds_allowed, seed_band_name
 from evaluation.manual_rules import (
     ACTION_HOLD,
@@ -424,36 +421,9 @@ def summarise(rule_episodes, twap_episodes, thresholds):
     return summary
 
 
-def git_information():
-    def git(*arguments):
-        completed = subprocess.run(
-            ["git", *arguments],
-            cwd=PROJECT_ROOT,
-            capture_output=True,
-            text=True,
-        )
-        # rstrip("\n"), not strip(): git status --porcelain encodes state in two
-        # leading characters per line, so " M file" (modified, not staged) and
-        # "M  file" (staged) are different states. strip() would eat the leading
-        # space of the FIRST line only, silently corrupting that one entry.
-        return completed.stdout.rstrip("\n") if completed.returncode == 0 else None
-
-    return git("rev-parse", "HEAD"), git("status", "--porcelain")
-
-
 def write_config_used(path, args, gate_configs, thresholds):
     """Project rule 6: every run records its commit, config, seeds and date."""
-    commit, porcelain = git_information()
     payload = {
-        "run": {
-            "script": "evaluation/evaluate_manual_rules_gates.py",
-            "date": date.today().isoformat(),
-            "git_commit": commit,
-            "git_working_tree_clean": (porcelain == "") if porcelain is not None else None,
-            "git_uncommitted_paths": porcelain.splitlines() if porcelain else [],
-            "python": sys.version.split()[0],
-            "platform": platform.platform(),
-        },
         "seeds": {
             "start": args.seed_start,
             "end": args.seed_end,
@@ -474,9 +444,9 @@ def write_config_used(path, args, gate_configs, thresholds):
             for gate_name, (config_path, config) in gate_configs.items()
         },
     }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        yaml.safe_dump(payload, handle, sort_keys=False, allow_unicode=True)
+    return write_provenance(
+        path, "evaluation/evaluate_manual_rules_gates.py", payload
+    )
 
 
 def print_table(summary):
@@ -589,6 +559,15 @@ def main():
 
     twap_episodes = load_twap_episodes(args.twap_episodes_csv)
 
+    # Written BEFORE the first episode, so the dirty-tree flag describes the tree
+    # as the run started rather than as it ended.
+    config_used_path = write_config_used(
+        args.out.with_name(args.out.stem.replace("_results", "") + "_config_used.yaml"),
+        args,
+        gate_configs,
+        thresholds,
+    )
+
     episode_count = args.seed_end - args.seed_start + 1
     print(
         f"{len(args.rules)} rules x {len(gate_configs)} gates x {episode_count} "
@@ -629,11 +608,6 @@ def main():
     args.episodes_out.parent.mkdir(parents=True, exist_ok=True)
     rule_episodes.to_csv(args.episodes_out, index=False)
     summary.to_csv(args.out, index=False)
-
-    config_used_path = args.out.with_name(
-        args.out.stem.replace("_results", "") + "_config_used.yaml"
-    )
-    write_config_used(config_used_path, args, gate_configs, thresholds)
 
     print_table(summary)
     print(f"\nSaved summary to:      {args.out}")

@@ -16,7 +16,8 @@ import pandas as pd
 from baselines.twap_agent import TWAPAgent
 from common.env_factory import PROJECT_ROOT, load_config, make_env
 from common.metrics import implementation_shortfall_bps
-from common.seeds import assert_seeds_allowed
+from common.provenance import write_config_used
+from common.seeds import assert_seeds_allowed, seed_band_name
 
 
 DEFAULT_CONFIGS = [
@@ -145,6 +146,32 @@ def main():
         context="evaluate_twap_gates",
     )
 
+    # Written BEFORE the first episode, so the dirty-tree flag describes the tree
+    # as the run started rather than as it ended.
+    seed_end = args.seed_start + args.episodes - 1
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    provenance_path = write_config_used(
+        args.out.with_name(args.out.stem + "_config_used.yaml"),
+        "evaluation/evaluate_twap_gates.py",
+        {
+            "seeds": {
+                "start": args.seed_start,
+                "end": seed_end,
+                "episodes_per_gate": args.episodes,
+                "band": seed_band_name(args.seed_start, seed_end),
+            },
+            "final_test": args.final_test,
+            "agent": "twap",
+            "configs": {
+                Path(config_path).stem: {
+                    "path": str(config_path),
+                    "environment": load_config(config_path)["environment"],
+                }
+                for config_path in args.configs
+            },
+        },
+    )
+
     summaries = []
     episode_frames = []
     for config_path in args.configs:
@@ -172,6 +199,7 @@ def main():
     all_episodes_frame.to_csv(args.episodes_out, index=False)
     print(f"\nSaved gate comparison to: {args.out}")
     print(f"Saved per-episode results to: {args.episodes_out}")
+    print(f"Saved provenance to: {provenance_path}")
 
 
 if __name__ == "__main__":

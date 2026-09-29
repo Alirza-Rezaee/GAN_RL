@@ -25,7 +25,8 @@ from stable_baselines3 import PPO
 from baselines.twap_agent import TWAPAgent
 from common.env_factory import PROJECT_ROOT, load_config, make_env
 from common.metrics import implementation_shortfall_bps
-from common.seeds import assert_seeds_allowed
+from common.provenance import write_config_used
+from common.seeds import assert_seeds_allowed, seed_band_name
 
 
 def run_episode(env, agent_step, parent_order_size, seed):
@@ -180,6 +181,27 @@ def main():
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Written BEFORE the first episode, so the dirty-tree flag describes the tree
+    # as the run started rather than as it ended.
+    seed_end = seed_start + num_episodes - 1
+    provenance_path = write_config_used(
+        output_path.with_name(output_path.stem + "_config_used.yaml"),
+        "evaluation/evaluate.py",
+        {
+            "seeds": {
+                "start": seed_start,
+                "end": seed_end,
+                "episodes": num_episodes,
+                "band": seed_band_name(seed_start, seed_end),
+            },
+            "final_test": args.final_test,
+            "agent": args.agent,
+            "model": str(args.model) if args.model else None,
+            "config_file": str(args.config) if args.config else None,
+            "environment": config["environment"],
+        },
+    )
+
     agent_step, agent_reset = build_agent_step(args.agent, config, args.model)
 
     # One environment is created and reused; re-seeding before each reset gives
@@ -212,6 +234,7 @@ def main():
     print(f"  fill rate   mean/std : {frame['fill_rate'].mean():.4f} / {frame['fill_rate'].std():.4f}")
     print(f"  completed episodes   : {int(frame['completed'].sum())} / {len(frame)}")
     print(f"\nSaved per-episode results to: {output_path}")
+    print(f"Saved provenance to: {provenance_path}")
 
 
 if __name__ == "__main__":
