@@ -1,0 +1,2 @@
+gate,rule,episodes,is_mean_bps,is_median_bps,completed_pct,mean_unexecuted_shares,oversell_episodes,episodes_without_fills,mean_steps_used,n_mkt,n_lmt,n_hold,clamped_orders,suppressed_orders,paired_n,n_identical_to_twap,mean_improvement_bps,median_improvement_bps,wilcoxon_stat,wilcoxon_p,holm_p,verdict
+gate_d_varchild,patient_then_panic,200,0.5842387403498125,0.14713972892802757,99.5,1.0,0,0,6.77,205,1149,0,58,0,0,0,,,,,,not_testable
