@@ -1,0 +1,91 @@
+# Is gate_e a usable gate at all? TWAP validation criteria.
+#
+# ======================================================================
+# WRITTEN BEFORE THE RUN. DO NOT CHANGE AFTERWARDS.
+# ======================================================================
+# Locked in on 2026-09-29, before TWAP was ever run on gate_e. The numbers it
+# relies on come from the committed impact probe (results/impact_probe_*.csv,
+# commit 2a16e0d) and the committed Stage-0 TWAP results.
+#
+# This does NOT test whether gate_e has headroom. It tests the cheaper, prior
+# question: can the market absorb this parent order at all, and is the cost
+# materially larger than the flat gate it replaces? Headroom is the next step,
+# and only worth paying for if this passes.
+
+run:
+  what: "TWAP on gate_e and gate_d_varchild, seeds 1000-1199, 200 episodes each."
+  why_two_gates: >
+    evaluate_twap_gates.py takes exactly two configs. gate_d_varchild is the
+    useful second arm: same seeds, so it gives a direct like-for-like reference
+    for how much more expensive gate_e is, and it supplies the TWAP baseline on
+    seeds 1000-1199 that the Stage-2 Run B could not be paired against.
+  seeds: {start: 1000, end: 1199}
+  band: development_new
+
+# ----------------------------------------------------------------------
+# Criteria, judged on the gate_e arm
+# ----------------------------------------------------------------------
+criteria:
+
+  completion:
+    min_completed_pct: 95.0
+    why: >
+      TWAP is the baseline every policy is measured against. A baseline that
+      fails to finish the job on more than 1 episode in 20 makes every IS
+      comparison murky, because implementation_shortfall_bps only prices the
+      shares that actually executed - a policy could look cheap simply by
+      trading less. For reference, TWAP completes 99.5% on gate_b and gate_d.
+    if_it_fails: >
+      The book cannot absorb 5000 shares in 10 minutes. Fall back to Candidate B
+      (parent_order_size 3000, order_fixed_size 1000, same window) rather than
+      shrinking order_fixed_size, which would undo the convexity this gate exists
+      for.
+
+  oversell:
+    max_oversell_episodes: 0
+    why: >
+      A regression check, not a discovery. Stage 2 proved TWAP can never trigger
+      the clamp: it stops sending once quantity_sent >= parent_order_size, so at
+      least order_fixed_size is always outstanding before each order. Any oversell
+      here means something about that argument is wrong on this gate.
+
+  cost_is_material:
+    min_median_is_bps: 0.40
+    why: >
+      gate_d's TWAP median IS is 0.070 bps and its child orders cost 0.050 bps in
+      the probe - the two agree, so episode IS tracks single-child cost closely.
+      gate_e's children cost 0.854 bps in the probe, so a median IS near 0.85 bps
+      is expected if the book refills between orders, and higher if it does not.
+      The 0.40 bar sits well below that expectation but roughly 6x gate_d, so it
+      fails only if the gate is not meaningfully more expensive at all.
+    if_it_fails: >
+      Repeated 1000-share orders are somehow cheaper than the probe's single
+      order. Investigate before changing anything - that would contradict the
+      probe and should be explained, not patched around.
+
+# ----------------------------------------------------------------------
+# Reported, not gated
+# ----------------------------------------------------------------------
+report_only:
+  - "mean and std of IS on both arms"
+  - "mean unexecuted shares on both arms"
+  - "gate_e minus gate_d_varchild IS, paired on seed (Wilcoxon, median and mean)"
+  - "per-seed completion failures, if any, with the seed numbers"
+
+expectation_stated_in_advance: >
+  Median IS on gate_e near 0.85 bps, completion at or near 99%, zero oversell.
+  Stated here so the run tests a prediction rather than being read after the
+  fact. The genuinely uncertain one is completion: the probe never sent two
+  orders into the same book.
+
+# ----------------------------------------------------------------------
+# What happens next, decided in advance
+# ----------------------------------------------------------------------
+decision:
+  pass: >
+    All three criteria met. Proceed to repeat the Stage-0 screening on gate_e:
+    all four manual rules vs TWAP on the same seeds, with configs/gate.yaml's
+    thresholds re-registered for the new seed range. That, not this run, answers
+    whether the environment now has headroom.
+  fail_completion: "Switch to Candidate B and re-run this validation."
+  fail_cost: "Do not proceed. Explain the contradiction with the impact probe first."

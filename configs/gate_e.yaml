@@ -1,0 +1,65 @@
+# gate_e: the first gate sized from measured market impact rather than guessed.
+#
+# Why this gate exists
+# --------------------
+# Stage 0 found the environment flat: four different schedules all tied with
+# TWAP. Stage 3/4 measured why. At order_fixed_size 100:
+#
+#   * a child order does not even clear the touch - median bid depth at level 1
+#     is 114 shares, and levels 1-5 together hold 618;
+#   * a single 100-share order costs 0.050 bps against the arrival mid;
+#   * cost is essentially LINEAR in size below ~300 shares (elasticity 1.09 from
+#     q=100 to q=300), so splitting a parent order differently changes almost
+#     nothing per share, and a scheduler has nothing to exploit.
+#
+# Convexity appears at q = 1000: elasticity rises to 1.36 between 300 and 1000,
+# a single 1000-share order costs 0.854 bps (bootstrap 95% CI [0.665, 1.086])
+# and still fills 100% of the time. Its immediate price impact is -0.300 bps and
+# decays back to roughly zero over 3-4 minutes.
+#
+# That decay is the mechanism a scheduler can exploit. TWAP on this gate trades
+# at steps 1, 3, 5, 7 and 9 - two minutes apart - so each of its orders lands on
+# a book still partly depressed by the previous one. A policy that spaces its
+# orders differently should get a measurably different price.
+#
+# Open risk, which configs/gate_e_validation_criteria.yaml exists to test: the
+# impact probe measured ONE order on an UNDISTURBED book. This gate asks for
+# 5000 shares against a median top-5 depth of 618, so whether the book refills
+# enough between children is not yet known. A single 3000-share order already
+# fills only 57%.
+
+environment:
+  id: "markets-execution-v0"
+  env_variant: "variable_last_child"   # no oversell on the final partial child
+  background_config: "rmsc04"
+  mkt_close: "16:00:00"
+  timestep_duration: "60s"
+  starting_cash: 1000000
+  order_fixed_size: 1000        # sized from the impact probe, not guessed
+  parent_order_size: 5000       # 5 child orders, an exact multiple of the above
+  execution_window: "00:10:00"  # 10 decision steps -> slack of 5 steps
+  direction: "SELL"
+  state_history_length: 4
+  market_data_buffer_length: 5
+  first_interval: "00:30:00"
+
+algorithm:
+  name: "ppo"
+  policy: "MlpPolicy"
+  learning_rate: 0.0001
+  n_steps: 2048
+  batch_size: 64
+  gamma: 0.99
+  ent_coef: 0.01
+
+training:
+  quick_test_timesteps: 50000
+  total_timesteps: 250000
+  seed: 42
+  eval_seed: 500
+  eval_freq: 5000
+  n_eval_episodes: 20
+
+evaluation:
+  episodes: 200
+  seed_start: 1000              # development_new band; 100-299 are burned
