@@ -1,0 +1,61 @@
+# gate_e_candidate_b: gate_e with a smaller parent order.
+#
+# Why this file exists
+# --------------------
+# TWAP on gate_e completed only 78.0% of 200 episodes (commit be2f2b1),
+# against a pre-registered bar of 95%. configs/gate_e_validation_criteria.yaml
+# decided the response in advance: fall back to Candidate B, i.e. a smaller
+# parent order at the SAME order_fixed_size, rather than shrinking the child
+# order - shrinking it would undo the convexity gate_e exists for.
+#
+# The failure was partial fills, not unsent orders: 37 of the 44 failed
+# episodes left less than one child unexecuted (median 343 shares of 5000).
+# The book is being drained faster than it refills, so three children should
+# leave each one landing on a fuller book than five did.
+#
+# Only parent_order_size differs from configs/gate_e.yaml. The three
+# validation bars are NOT restated here - configs/gate_e_validation_criteria.yaml
+# stays the single authority, and judges this gate unchanged. Its 0.40 bps cost
+# bar is derived from the per-child cost in the impact probe (0.854 bps), not
+# from the number of children, so it carries over without modification.
+#
+# Expectation, stated before the run: completion above 95%, median IS around
+# 0.9-1.2 bps, zero oversell. If Candidate B also fails completion, the signal
+# is that a 1000-share child is simply too large for this book - go back to the
+# impact probe rather than inventing a Candidate C.
+
+environment:
+  id: "markets-execution-v0"
+  env_variant: "variable_last_child"   # no oversell on the final partial child
+  background_config: "rmsc04"
+  mkt_close: "16:00:00"
+  timestep_duration: "60s"
+  starting_cash: 1000000
+  order_fixed_size: 1000        # sized from the impact probe, not guessed
+  parent_order_size: 3000       # was 5000 on gate_e; 3 child orders instead of 5
+  execution_window: "00:10:00"  # 10 decision steps -> slack of 7 steps
+  direction: "SELL"
+  state_history_length: 4
+  market_data_buffer_length: 5
+  first_interval: "00:30:00"
+
+algorithm:
+  name: "ppo"
+  policy: "MlpPolicy"
+  learning_rate: 0.0001
+  n_steps: 2048
+  batch_size: 64
+  gamma: 0.99
+  ent_coef: 0.01
+
+training:
+  quick_test_timesteps: 50000
+  total_timesteps: 250000
+  seed: 42
+  eval_seed: 500
+  eval_freq: 5000
+  n_eval_episodes: 20
+
+evaluation:
+  episodes: 200
+  seed_start: 1000              # development_new band; 100-299 are burned
