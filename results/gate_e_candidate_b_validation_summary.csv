@@ -1,0 +1,3 @@
+gate,config,episodes,seed_start,seed_end,is_mean_bps,is_std_bps,completed_pct,mean_unexecuted_shares
+gate_e_candidate_b,configs\gate_e_candidate_b.yaml,200,1000,1199,1.171270081090209,2.115853407043498,77.0,94.96
+gate_d_varchild,configs\gate_d_varchild.yaml,200,1000,1199,0.21983206037663622,2.2118000872030543,98.5,1.515
