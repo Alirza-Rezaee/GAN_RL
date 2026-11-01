@@ -1,0 +1,19 @@
+4 rules x 1 gates x 200 episodes = 800 simulated market days.
+
+gate_e: parent=5000, fixed=1000, steps=10, slack=5 step(s)
+  front_loaded ... IS mean=1.990 median=1.554 bps, completed=97.00%, oversell=0
+  back_loaded ... IS mean=2.046 median=1.730 bps, completed=84.50%, oversell=0
+  spread_aware ... IS mean=1.704 median=1.566 bps, completed=97.50%, oversell=0
+  patient_then_panic ... IS mean=1.706 median=0.785 bps, completed=97.50%, oversell=0
+
+gate     rule                   IS mean   IS med  impr med  compl%  unexec  over      raw p     holm p  verdict
+---------------------------------------------------------------------------------------------------------------
+gate_e   front_loaded             1.990    1.554    -0.388   97.00   28.45     0     0.0000     0.0001  significantly_worse
+gate_e   back_loaded              2.046    1.730    -0.187   84.50  157.04     0     0.0451     0.0902  fail_completion
+gate_e   spread_aware             1.704    1.566    -0.175   97.50   31.00     0     0.0012     0.0035  significant_but_below_min_effect
+gate_e   patient_then_panic       1.706    0.785    -0.015   97.50   34.77     0     0.4545     0.4545  not_significant
+
+Saved summary to:      results\gate_e_screening_results.csv
+Saved per-episode to:  results\gate_e_screening_episodes.csv
+Saved provenance to:   results\gate_e_screening_config_used.yaml
+
