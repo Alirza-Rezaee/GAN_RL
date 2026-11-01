@@ -1,0 +1,208 @@
+# Decision thresholds for the headroom screening of gate_e.
+#
+# ======================================================================
+# WRITTEN BEFORE ANY RESULT WAS SEEN. DO NOT CHANGE AFTERWARDS.
+# ======================================================================
+# Locked in on 2026-11-01. The only results that existed at that moment were
+# the committed twap_catchup validation (results/twap_catchup_*, commit
+# 5346627), the per-child fill diagnostic (45496c1), the impact probe (2a16e0d)
+# and the Stage-0 screening on gate_b/gate_d (f89be65).
+#
+# evaluation/evaluate_manual_rules_gates.py reads this file and computes the
+# pass/fail column itself, so the thresholds cannot be quietly moved once the
+# table exists. This is a sibling of configs/gate.yaml, not a replacement:
+# gate.yaml records what Stage 0 was judged against and must stay as it is.
+
+# ----------------------------------------------------------------------
+# The question
+# ----------------------------------------------------------------------
+# Stage 0 asked whether the execution environment has headroom - whether any
+# schedule can beat TWAP - and answered no. On gate_b all four manual rules came
+# out literally identical to TWAP, and on gate_d none passed. That is why the
+# PPO baseline in results/comparison.csv showed a price advantage of exactly
+# zero on most seeds: there was nothing to find.
+#
+# Everything since has been an attempt to build a gate where the answer could be
+# yes. The impact probe measured that convexity starts at q = 1000, gate_e was
+# sized from that curve, and the completion failure that blocked it turned out to
+# be the baseline rather than the gate. This run re-asks the Stage-0 question on
+# the gate that measurement produced.
+#
+# It is the decision point for the whole thesis, not a routine check. If a rule
+# passes, Phase 1 becomes meaningful and PPO training is worth its compute. If
+# none does, gate_e is flat too and the gate has to be made harder again - and
+# no amount of RL machinery will rescue it.
+
+screening:
+
+  # ------------------------------------------------------------------
+  # What is being compared
+  # ------------------------------------------------------------------
+  gate: gate_e                # configs/gate_e.yaml
+  rules: [front_loaded, back_loaded, spread_aware, patient_then_panic]
+
+  # Every policy is run on the SAME market days, because the same seed replays
+  # the same simulated day. That is what makes a paired test legitimate.
+  seeds:
+    start: 1000
+    end: 1199                 # 200 episodes per rule
+
+  baseline: twap_catchup
+  baseline_episodes: "results/twap_catchup_episodes.csv"
+  why_this_baseline: >
+    The committed sent-based TWAP is not a legitimate baseline on gate_e. It
+    completes only 78.0% there, and 45496c1 showed why: every incomplete episode
+    contained a partially filled child and none of them recovered, because it
+    schedules on shares sent rather than shares filled. The four manual rules
+    have been fill-aware since they were written
+    (evaluation/manual_rules.py:114), so pairing them against the sent-based
+    agent would measure that bookkeeping asymmetry and report it as headroom.
+    twap_catchup removes the asymmetry: it completes 97.5% on exactly these
+    seeds and is otherwise the same schedule, episode-for-episode identical on
+    156 of 200.
+
+  # ------------------------------------------------------------------
+  # Statistical test
+  # ------------------------------------------------------------------
+  # Unchanged from configs/gate.yaml. These choices were about the shape of the
+  # IS distribution and the number of rules tested, and neither has changed.
+  test:
+    name: wilcoxon_signed_rank
+    alternative: two-sided      # so a rule that is WORSE than the baseline is
+                                # detected too; direction is read off the median
+    alpha: 0.05
+    multiple_comparison: holm   # four rules, so ~19% chance of one false
+                                # positive without correction
+    decide_on: holm_p
+
+  # ------------------------------------------------------------------
+  # Minimum effect size
+  # ------------------------------------------------------------------
+  effect:
+    min_median_improvement_bps: 0.20
+    raised_from_gate_yaml: 0.10
+    why_raised: >
+      configs/gate.yaml set 0.10 bps against a gate whose TWAP median IS was
+      0.07 bps, so the bar demanded more than the entire cost of the baseline.
+      gate_e's baseline median is 1.3079 bps, roughly nineteen times larger, so
+      carrying 0.10 bps across unchanged would have made the bar a 7.6% cost
+      reduction - a far weaker demand than the one Stage 0 was judged against,
+      disguised as the same number. 0.20 bps is 15.3% of the baseline's median,
+      which keeps the hurdle at a comparable difficulty rather than at a
+      comparable digit.
+
+      The bar is what stops a p-value alone from justifying a multi-day PPO run.
+      Pairing on identical seeds cancels most per-episode market noise, so with
+      n = 200 a very small median shift can still come out significant while
+      being worth nothing.
+    known_consequence: >
+      This is the conservative choice and it has a cost: a real but small effect
+      - a median improvement between 0.10 and 0.20 bps - will be recorded as a
+      FAIL and could send a usable gate back to be resized. That case is the
+      most likely near miss, so `decision.path_b_near_miss` names it in advance
+      rather than leaving it to be argued about once the table exists.
+
+      The harness reports only median_improvement_bps, not a percentage. The
+      percentage is derived from that and the baseline's committed median of
+      1.3079 bps when the results are recorded, so no change to
+      evaluation/evaluate_manual_rules_gates.py is needed.
+
+  # ------------------------------------------------------------------
+  # Validity filters - a rule that trips these cannot claim headroom
+  # ------------------------------------------------------------------
+  # implementation_shortfall_bps() prices only the shares that were actually
+  # executed (common/metrics.py), so a rule that simply refuses to trade would
+  # post a beautiful IS while failing the task. Completion and oversell are hard
+  # gates, not footnotes.
+  validity:
+    min_completion_pct: 95.0
+    changed_from_gate_yaml: 99.0
+    why_changed: >
+      This is a LOOSENING relative to configs/gate.yaml and so needs the
+      stronger justification. gate.yaml set 99.0 because TWAP itself completed
+      99.5% on gate_b and gate_d, i.e. the bar was "as good as the baseline".
+      On gate_e the baseline completes 97.5%, because roughly a quarter of
+      simulated days are thin enough for a 1000-share child to come back short
+      and 2.5% are thin enough that even a resend does. Carrying 99.0 across
+      unchanged would hold every rule to a standard the baseline itself cannot
+      meet, and would disqualify rules for the gate's property rather than for
+      their own behaviour. 95.0 is the bar twap_catchup had to clear in
+      configs/twap_catchup_criteria.yaml, so rule and baseline are now held to
+      one standard. Completion is reported for every rule regardless, and a rule
+      that completes materially less than the baseline's 97.5% is to be treated
+      as a red flag even if it clears 95.0 - see `decision.path_d`.
+
+    max_oversell_episodes: 0
+      # Unchanged. gate_e runs the variable_last_child variant
+      # (common/execution_env.py), whose clamp made patient_then_panic's 51
+      # oversell episodes on gate_d go to zero (80c5590). Any oversell here means
+      # the clamp is not doing what that run showed it does.
+
+# ======================================================================
+# What each outcome means, fixed in advance
+# ======================================================================
+decision:
+  path_a: >
+    At least one rule passes outright: holm_p < alpha, median improvement
+    >= 0.20 bps, and both validity filters clear. Meaning: gate_e has headroom,
+    and a policy that schedules differently is genuinely rewarded. Action:
+    gate_e becomes the thesis environment. Re-register the Phase 1 criteria
+    against twap_catchup on gate_e and train PPO - and record the best passing
+    rule's median improvement there as the number PPO must be judged against,
+    not just TWAP. A learned policy that beats the baseline by less than a
+    hand-written schedule does is not a result, however significant its p-value.
+  path_b_near_miss: >
+    A rule reaches holm_p < alpha and clears both validity filters, but its
+    median improvement is between 0.10 and 0.20 bps - above the Stage-0 bar and
+    below this one. This counts as a FAIL. It is written down because it is the
+    most likely near miss and because the temptation afterwards will be to note
+    that it would have passed under gate.yaml's number. It would, and that is
+    exactly why the bar was re-derived before the run rather than after.
+    Action: treat as path_b, and record the measured effect so the resized gate
+    can be checked for having preserved it.
+  path_b: >
+    No rule passes. Meaning: gate_e is flat too. Four different schedules all
+    tie with a baseline that is now a fair opponent, so there is nothing an RL
+    agent could discover either. Action: do NOT train PPO. The diagnostic showed
+    parent order SIZE is not what binds - cutting it 40% moved completion by one
+    point - so the next lever is the execution window or the child size, and the
+    impact curve in results/impact_probe_summary.csv is where to size it from.
+  path_c: >
+    A rule beats the baseline by an implausible margin, or beats it while
+    completing less. Meaning: suspect the comparison before believing it. The
+    most likely cause is that IS prices only executed shares, so trading less
+    can look cheap. Action: check completion and mean unexecuted shares on that
+    rule before anything else.
+  path_d: >
+    Any rule completes materially below the baseline's 97.5% while still
+    clearing the 95.0 filter. Meaning: the 95.0 bar let through a rule that is
+    buying its IS with unexecuted shares. Action: report it as failing on
+    completion grounds regardless of the filter, and say so explicitly rather
+    than relying on the threshold.
+
+# ======================================================================
+# Stated in advance
+# ======================================================================
+expectation_stated_in_advance: >
+  No confident prediction is offered on direction, and that is the point of
+  running it: the previous prediction in configs/twap_catchup_criteria.yaml was
+  wrong, and it was wrong because it reasoned from an expectation instead of
+  from the measurements already in the repo.
+
+  What the measurements do support is narrow. The impact probe found a single
+  1000-share order costs 0.854 bps and that its price impact decays back to
+  roughly zero over 3-4 minutes, which is the mechanism a schedule could
+  exploit - twap_catchup trades about every two minutes, so each of its children
+  lands on a book still partly depressed by the last. back_loaded and
+  patient_then_panic are the two rules that space their orders differently
+  enough to test that. The same probe also found the decay is noisy and that
+  background agents amplify perturbations chaotically, which is why the paired
+  design and the 0.10 bps floor exist.
+
+  Against that: the per-child diagnostic found median depth ahead of children 1
+  to 5 is flat at 618, 604, 700, 674, 592, which is weak evidence that the book
+  does NOT stay depressed between children at this spacing. If that reading is
+  right, gate_e is flat and path_b follows.
+
+  So the honest prior is roughly even, and the two readings above are recorded
+  so that whichever way it falls, the reasoning was on paper first.
