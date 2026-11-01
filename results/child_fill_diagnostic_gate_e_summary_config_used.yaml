@@ -1,0 +1,36 @@
+run:
+  script: evaluation/diagnose_child_fills.py
+  date: '2026-11-01'
+  git_commit: c442742caccb44213748a7fc45aed4e2a99b3855
+  git_working_tree_clean: false
+  git_uncommitted_paths:
+  - ?? evaluation/diagnose_child_fills.py
+  - ?? results/child_fill_diagnostic_gate_e.log
+  python: 3.10.20
+  platform: Windows-10-10.0.26200-SP0
+seeds:
+  start: 1000
+  end: 1099
+  episodes: 100
+  band: development_new
+final_test: false
+agent: twap
+question: Does gate_e's completion shortfall come from per-order partial fills, or
+  from the book being drained by the later children?
+configs:
+  gate_e:
+    path: configs/gate_e.yaml
+    environment:
+      id: markets-execution-v0
+      env_variant: variable_last_child
+      background_config: rmsc04
+      mkt_close: '16:00:00'
+      timestep_duration: 60s
+      starting_cash: 1000000
+      order_fixed_size: 1000
+      parent_order_size: 5000
+      execution_window: 00:10:00
+      direction: SELL
+      state_history_length: 4
+      market_data_buffer_length: 5
+      first_interval: 00:30:00

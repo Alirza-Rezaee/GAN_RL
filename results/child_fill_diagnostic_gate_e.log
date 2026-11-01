@@ -1,0 +1,121 @@
+Diagnosing gate_e: 100 episodes, seeds 1000..1099, order_fixed_size=1000, parent=5000
+  seed 1000: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1001: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1002: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1003: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1004: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1005: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1006: sent 5 children, shortfall  1253, 4 partial fill(s), INCOMPLETE
+  seed 1007: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1008: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1009: sent 5 children, shortfall   585, 1 partial fill(s), INCOMPLETE
+  seed 1010: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1011: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1012: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1013: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1014: sent 5 children, shortfall   552, 1 partial fill(s), INCOMPLETE
+  seed 1015: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1016: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1017: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1018: sent 5 children, shortfall  1221, 3 partial fill(s), INCOMPLETE
+  seed 1019: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1020: sent 5 children, shortfall  1180, 3 partial fill(s), INCOMPLETE
+  seed 1021: sent 5 children, shortfall    43, 1 partial fill(s), INCOMPLETE
+  seed 1022: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1023: sent 5 children, shortfall  1900, 2 partial fill(s), INCOMPLETE
+  seed 1024: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1025: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1026: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1027: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1028: sent 5 children, shortfall   871, 2 partial fill(s), INCOMPLETE
+  seed 1029: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1030: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1031: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1032: sent 5 children, shortfall   700, 2 partial fill(s), INCOMPLETE
+  seed 1033: sent 5 children, shortfall   385, 1 partial fill(s), INCOMPLETE
+  seed 1034: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1035: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1036: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1037: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1038: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1039: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1040: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1041: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1042: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1043: sent 5 children, shortfall     3, 1 partial fill(s), INCOMPLETE
+  seed 1044: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1045: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1046: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1047: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1048: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1049: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1050: sent 5 children, shortfall    86, 1 partial fill(s), INCOMPLETE
+  seed 1051: sent 5 children, shortfall  1463, 2 partial fill(s), INCOMPLETE
+  seed 1052: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1053: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1054: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1055: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1056: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1057: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1058: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1059: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1060: sent 5 children, shortfall   264, 1 partial fill(s), INCOMPLETE
+  seed 1061: sent 5 children, shortfall   121, 1 partial fill(s), INCOMPLETE
+  seed 1062: sent 5 children, shortfall   593, 3 partial fill(s), INCOMPLETE
+  seed 1063: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1064: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1065: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1066: sent 5 children, shortfall   745, 2 partial fill(s), INCOMPLETE
+  seed 1067: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1068: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1069: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1070: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1071: sent 5 children, shortfall   184, 1 partial fill(s), INCOMPLETE
+  seed 1072: sent 5 children, shortfall   127, 1 partial fill(s), INCOMPLETE
+  seed 1073: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1074: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1075: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1076: sent 5 children, shortfall   179, 1 partial fill(s), INCOMPLETE
+  seed 1077: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1078: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1079: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1080: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1081: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1082: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1083: sent 5 children, shortfall   163, 1 partial fill(s), INCOMPLETE
+  seed 1084: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1085: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1086: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1087: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1088: sent 5 children, shortfall   143, 1 partial fill(s), INCOMPLETE
+  seed 1089: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1090: sent 5 children, shortfall   134, 1 partial fill(s), INCOMPLETE
+  seed 1091: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1092: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1093: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1094: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1095: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1096: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1097: sent 5 children, shortfall  2148, 3 partial fill(s), INCOMPLETE
+  seed 1098: sent 5 children, shortfall     0, 0 partial fill(s), completed
+  seed 1099: sent 5 children, shortfall     0, 0 partial fill(s), completed
+
+Accounting check: shares_remaining() agrees with the environment's own remaining_quantity on all 100 episodes.
+
+Shortfall by child order index:
+ child  orders  requested   filled   short  fill% med  fill% mean  partial%  depth med
+     1     100     100000    95393    4607      100.0        95.4      15.0        618
+     2     100     100000    96957    3043      100.0        97.0       8.0        604
+     3     100     100000    96179    3821      100.0        96.2       8.0        700
+     4     100     100000    99241     759      100.0        99.2       5.0        674
+     5     100     100000    97187    2813      100.0        97.2       4.0        592
+
+Episodes completed: 76.0%  (76/100)
+Mean shortfall per episode: 150.4 shares of 5000
+Episodes with at least one partial fill: 24.0%
+
+Saved per-child summary to:  results\child_fill_diagnostic_gate_e_summary.csv
+Saved per-step records to:   results\child_fill_diagnostic_gate_e_steps.csv
+Saved per-episode totals to: results\child_fill_diagnostic_gate_e_episodes.csv
+Saved provenance to:         results\child_fill_diagnostic_gate_e_summary_config_used.yaml
+
