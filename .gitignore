@@ -80,6 +80,7 @@ abides-jpmc-public/
 # Personal project notes (not shared via git)
 CLAUDE.md
 docs/
+.claude/
 
 # Training outputs
 runs/
@@ -88,3 +89,5 @@ results/comparison_ppo_seed43.csv
 results/ppo_seed43.csv
 results/ppo_seed44.csv
 results/comparison.csv
+.claude/commands/lesson.md
+.gitignore
