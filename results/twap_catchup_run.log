@@ -1,0 +1,39 @@
+run_a_regression: twap_catchup on gate_d_varchild, 200 episodes, seeds 1000..1199
+run_b_effect: twap_catchup on gate_e, 200 episodes, seeds 1000..1199
+
+========================================================================
+Run A - regression on gate_d_varchild
+========================================================================
+  episodes differing from the committed arm: [1020, 1129, 1154]
+  pre-registered as expected:                [1020, 1129, 1154]
+  unexpected differences:                    []
+  expected but did NOT differ:               []
+  VERDICT: PASS
+    seed 1020: remaining 100 -> 0, IS 2.6269 -> 3.1217 bps
+    seed 1129: remaining 100 -> 0, IS -0.7208 -> -0.4567 bps
+    seed 1154: remaining 103 -> 0, IS 2.1163 -> 1.7553 bps
+
+========================================================================
+Run B - effect on gate_e
+========================================================================
+  completion:   97.50%  (bar 95.0%)  PASS
+  oversell:     0 episode(s)  (bar 0)  PASS
+  median IS:    1.3079 bps  (bar 0.4)  PASS
+
+  reported, not gated:
+    IS mean 1.5215 +/- 2.6320 bps, mean unexecuted 22.62 shares
+    orders sent per episode: mean 5.33 against 5 for a full-fill schedule
+    resends: 67 extra child orders across 44 episode(s)
+    clamped 41, suppressed 0
+    paired vs committed TWAP: median IS difference +0.0000 bps, mean +0.0011 bps (positive = the catch-up paid more)
+    Wilcoxon: stat 470.0, p 7.705e-01, 156/200 episodes identical
+    incomplete seeds (5): [1018, 1023, 1129, 1144, 1196]
+
+OVERALL: Run A PASS, Run B PASS
+Next step is decided in advance in twap_catchup_criteria.yaml, section `decision`.
+
+Saved summary to:            F:\Master\Thesis\GAN_RL\results\twap_catchup_summary.csv
+Saved per-episode results to:F:\Master\Thesis\GAN_RL\results\twap_catchup_episodes.csv
+Saved Run A pairs to:        F:\Master\Thesis\GAN_RL\results\twap_catchup_run_a_pairs.csv
+Saved provenance to:         F:\Master\Thesis\GAN_RL\results\twap_catchup_summary_config_used.yaml
+

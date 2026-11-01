@@ -1,0 +1,51 @@
+run:
+  script: evaluation/evaluate_twap_catchup.py
+  date: '2026-11-01'
+  git_commit: 1d735c738ea41ceb473343703abf78311c4f100e
+  git_working_tree_clean: false
+  git_uncommitted_paths:
+  - ?? results/twap_catchup_run.log
+  python: 3.10.20
+  platform: Windows-10-10.0.26200-SP0
+seeds:
+  start: 1000
+  end: 1199
+  episodes_per_arm: 200
+  band: development_new
+final_test: false
+agent: twap_catchup
+criteria_file: F:\Master\Thesis\GAN_RL\configs\twap_catchup_criteria.yaml
+paired_against: results/gate_e_validation_episodes.csv
+configs:
+  gate_d_varchild:
+    path: configs/gate_d_varchild.yaml
+    environment:
+      id: markets-execution-v0
+      env_variant: variable_last_child
+      background_config: rmsc04
+      mkt_close: '16:00:00'
+      timestep_duration: 60s
+      starting_cash: 1000000
+      order_fixed_size: 100
+      parent_order_size: 500
+      execution_window: 00:10:00
+      direction: SELL
+      state_history_length: 4
+      market_data_buffer_length: 5
+      first_interval: 00:30:00
+  gate_e:
+    path: configs/gate_e.yaml
+    environment:
+      id: markets-execution-v0
+      env_variant: variable_last_child
+      background_config: rmsc04
+      mkt_close: '16:00:00'
+      timestep_duration: 60s
+      starting_cash: 1000000
+      order_fixed_size: 1000
+      parent_order_size: 5000
+      execution_window: 00:10:00
+      direction: SELL
+      state_history_length: 4
+      market_data_buffer_length: 5
+      first_interval: 00:30:00
