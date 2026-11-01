@@ -1,0 +1,196 @@
+# Does a fill-aware TWAP make gate_e a usable gate?
+#
+# ======================================================================
+# WRITTEN BEFORE THE RUN. DO NOT CHANGE AFTERWARDS.
+# ======================================================================
+# Locked in on 2026-11-01, before any catch-up agent existed. The numbers it
+# relies on come from committed results only: the gate_e TWAP validation
+# (results/gate_e_validation_*, commit 03f6d46), the Candidate B validation
+# (39f0cb1), the impact probe (2a16e0d) and the per-child fill diagnostic
+# (45496c1).
+
+# ----------------------------------------------------------------------
+# Why this run exists
+# ----------------------------------------------------------------------
+# configs/gate_e_validation_criteria.yaml pre-registered one explanation for a
+# completion failure - "the book cannot absorb 5000 shares in 10 minutes" - and
+# one response, Candidate B. Candidate B failed too (77.0% against gate_e's
+# 78.0%), so that decision tree is exhausted and this file opens a new one.
+#
+# The diagnostic in 45496c1 refuted the pre-registered explanation and named a
+# different cause:
+#
+#   * Depth does not fall across the episode. Median bid depth over levels 1-5
+#     ahead of children 1 to 5 is 618, 604, 700, 674, 592 - flat - and the later
+#     children fill BETTER, with partial-fill rates of 15%, 8%, 8%, 5%, 4%.
+#     Depletion by the earlier children predicts the opposite sign.
+#   * All 24 incomplete episodes out of 100 had at least one partially filled
+#     child; all 76 completed episodes had none. Not one episode recovered.
+#   * 80c5590 already recorded why recovery never happens: market-order
+#     remainders are discarded rather than rested. baselines/twap_agent.py
+#     schedules on quantity_sent rather than on shares filled, so an unfilled
+#     balance is never resent, and the 4 steps it holds on go unused.
+#   * Partial fills cluster by day. Depth at the moment of a partial fill has
+#     median 388 against 656 at a full fill. Roughly a quarter of simulated days
+#     are thin, which is close to independent of parent order size - and that is
+#     why Candidate B's 40% smaller parent order moved completion by one point.
+#
+# So the failing component is plausibly the baseline, not the gate. This run
+# tests that claim. It does NOT yet test whether gate_e has headroom; that is
+# the next step and only worth paying for if this passes.
+
+# ----------------------------------------------------------------------
+# The agent under test
+# ----------------------------------------------------------------------
+# Specified here, before it is written, so the run tests this agent rather than
+# whichever variant happened to pass.
+agent_under_test:
+  name: "twap_catchup"
+  file: "baselines/twap_catchup_agent.py"
+  why_a_new_file: >
+    baselines/twap_agent.py is left untouched so that every committed TWAP
+    number stays reproducible from its own source. The project rule is to build
+    alongside rather than replace.
+
+  rule: >
+    At each step read the shares still outstanding from the environment. By the
+    end of step k, outstanding should be at most parent_order_size * (1 -
+    k / total_steps); send one child order whenever outstanding is above that
+    target, and hold otherwise. In addition, if the number of child orders still
+    needed - ceil(outstanding / order_fixed_size) - is greater than or equal to
+    the steps remaining, send regardless of the schedule.
+
+  why_this_rule: >
+    It is the same quantity the committed TWAP tracks, measured on fills instead
+    of on sends, plus the forced catch-up that evaluation/manual_rules.py:114
+    already applies to all four manual rules. On gate_e the committed baseline is
+    the only agent in the project that is NOT fill-aware, so the baseline and the
+    candidate policies are not playing the same game. This removes that
+    asymmetry rather than adding a new advantage.
+
+  equivalence_claim: >
+    When every child order fills completely, this rule sends on exactly the same
+    steps as baselines/twap_agent.py. Worked through by hand on gate_e it gives
+    steps 1, 3, 5, 7, 9 and on gate_d_varchild steps 1, 3, 5, 7, 9, both matching
+    the committed agent. Run A below verifies this against the simulator instead
+    of trusting the derivation.
+
+# ----------------------------------------------------------------------
+# The runs
+# ----------------------------------------------------------------------
+runs:
+  run_a_regression:
+    what: "twap_catchup on gate_d_varchild, seeds 1000-1199, 200 episodes."
+    why: >
+      gate_d_varchild has a committed twap arm on exactly these seeds
+      (results/gate_e_validation_episodes.csv), and its 100-share children
+      almost always fill, so it isolates the equivalence claim: any difference
+      there is either a partial fill or a bug in the new agent.
+    compare_against: "results/gate_e_validation_episodes.csv, gate=gate_d_varchild"
+
+  run_b_effect:
+    what: "twap_catchup on gate_e, seeds 1000-1199, 200 episodes."
+    why: >
+      Same gate, same seeds and same episode count as the committed gate_e TWAP
+      arm, so the effect is read off a paired comparison rather than against a
+      differently-sampled baseline.
+    compare_against: "results/gate_e_validation_episodes.csv, gate=gate_e"
+
+seeds: {start: 1000, end: 1199}
+band: development_new
+
+# ----------------------------------------------------------------------
+# Criteria
+# ----------------------------------------------------------------------
+criteria:
+
+  run_a_identical_where_fills_are_complete:
+    expected_differing_seeds: [1020, 1129, 1154]
+    why: >
+      Those are the only three gate_d_varchild episodes in the committed arm that
+      did not complete, with 100, 100 and 103 shares left. They are the only
+      episodes where a fill was incomplete, so they are the only ones where a
+      fill-aware rule can legitimately behave differently. On the other 197,
+      is_bps and remaining_quantity must match the committed arm exactly.
+    max_unexplained_differing_episodes: 0
+    if_it_fails: >
+      The new agent is not the committed TWAP plus recovery; it has changed the
+      schedule itself. Fix the agent, do not reinterpret this criterion.
+
+  run_b_completion:
+    min_completed_pct: 95.0
+    why: >
+      The same bar, with the same justification, as
+      configs/gate_e_validation_criteria.yaml: a baseline that fails to finish
+      on more than 1 episode in 20 makes every IS comparison murky, because
+      implementation_shortfall_bps prices only the shares that executed, so a
+      policy could look cheap merely by trading less. Carried over unchanged so
+      this is the original question re-asked, not an easier one.
+    if_it_fails: >
+      Recovery is not enough and the thin days are genuinely unfillable within
+      10 minutes. Then the gate, not the baseline, is the problem, and the next
+      lever is the execution window rather than the parent order size - the
+      diagnostic showed size is not what binds.
+
+  run_b_oversell:
+    max_oversell_episodes: 0
+    why: >
+      A real risk this time, not a formality. The Stage-2 argument that TWAP can
+      never trigger the clamp relied on it stopping once quantity_sent reaches
+      parent_order_size. The catch-up agent sends on more steps and decides from
+      outstanding shares instead, so that argument no longer applies and the
+      clamp in common/execution_env.py is now the only thing preventing an
+      overshoot.
+
+  run_b_cost_is_material:
+    min_median_is_bps: 0.40
+    why: >
+      Also carried over unchanged from the original criteria file, so that fixing
+      completion cannot quietly cost the gate the property it was built for. For
+      reference the committed gate_e arm's completed episodes already have a
+      median IS of 0.98 bps.
+
+# ----------------------------------------------------------------------
+# Reported, not gated
+# ----------------------------------------------------------------------
+report_only:
+  - "mean, median and std of IS on both runs"
+  - "mean unexecuted shares on both runs"
+  - "number of extra child orders the catch-up sent, per episode"
+  - "twap_catchup minus committed twap IS on gate_e, paired on seed (Wilcoxon)"
+  - "per-seed completion failures, if any, with the seed numbers"
+  - "clamped_order_count and suppressed_order_count totals"
+
+# ----------------------------------------------------------------------
+# Stated in advance
+# ----------------------------------------------------------------------
+expectation_stated_in_advance: >
+  Run A identical on all but seeds 1020, 1129 and 1154, and completing those
+  three. Run B completion between 95% and 99%, zero oversell, and median IS
+  ABOVE the committed arm's 1.32 bps - probably 1.4 to 1.8 bps - because the
+  recovered shares are precisely the ones being bought on thin books, and
+  because IS now prices a full 5000 shares on episodes that previously priced
+  fewer. A median IS at or below 1.32 would be the surprise and would need
+  explaining before being accepted.
+
+  The genuinely uncertain one is completion. The diagnostic showed the time
+  budget is sufficient - 18 of 24 incomplete episodes needed one further child
+  order, 5 needed two, 1 needed three, against 4 idle steps - but a resend into
+  the same thin book can itself come back short, and that was never measured.
+
+# ----------------------------------------------------------------------
+# What happens next, decided in advance
+# ----------------------------------------------------------------------
+decision:
+  pass: >
+    Adopt twap_catchup as the gate_e baseline, record that the committed
+    sent-based arm is superseded for gate_e and why, and proceed to the headroom
+    screening: all four manual rules against twap_catchup on gate_e, same seeds,
+    with configs/gate.yaml's thresholds re-registered for this seed range. That
+    screening, not this run, decides whether gate_e is the environment the thesis
+    trains on.
+  fail_run_a: "Bug in the agent. Fix it and re-run both arms."
+  fail_completion: "Keep gate_e's sizing, widen execution_window, and re-register."
+  fail_cost: >
+    Do not proceed. A median IS below the committed arm's would contradict the
+    impact probe and the diagnostic together, and must be explained first.
